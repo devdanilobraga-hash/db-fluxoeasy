@@ -7,7 +7,7 @@ const {
   updateProduto, 
   deleteProduto 
 } = require('../controllers/produtosController');
-const auth = require('../middlewares/auth');
+const auth = require('../middleware/auth');
 
 router.post('/', auth, createProduto);          // criar produto
 router.get('/', auth, getProdutos);            // listar todos
