@@ -17,6 +17,7 @@ app.get("/ping", (req, res) => {
 
 // Rotas
 app.use("/api/usuarios", require("./routes/usuarios"));
+app.use("/api/produtos", require("./routes/produtos"));
 
 
 const PORT = process.env.PORT || 5000;
