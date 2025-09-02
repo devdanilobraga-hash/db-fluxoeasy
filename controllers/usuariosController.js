@@ -25,24 +25,45 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   const { login, senha } = req.body;
   try {
-    const result = await pool.query('SELECT * FROM usuario WHERE login = $1', [login]);
+    const result = await pool.query(
+      `SELECT u.*, c.nome AS cliente_nome
+       FROM usuario u
+       JOIN cliente c ON u.cliente_id = c.id
+       WHERE u.login = $1`,
+      [login]
+    );
+
     if (result.rows.length === 0) return res.status(400).json({ error: 'Usuário não encontrado' });
 
     const user = result.rows[0];
+
     const match = await bcrypt.compare(senha, user.senha);
     if (!match) return res.status(400).json({ error: 'Senha incorreta' });
 
     const token = jwt.sign(
-        { id: user.id, nivel_acesso: user.nivel_acesso, cliente_id: user.cliente_id },
-        process.env.JWT_SECRET,
-        { expiresIn: '8h' }
-        );
-    res.json({ token, usuario: { id: user.id, nome: user.nome, nivel_acesso: user.nivel_acesso } });
+      { id: user.id, nivel_acesso: user.nivel_acesso, cliente_id: user.cliente_id },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    res.json({
+      token,
+      usuario: {
+        id: user.id,
+        nome: user.nome,
+        nivel_acesso: user.nivel_acesso,
+        cliente_id: user.cliente_id,
+        cliente_nome: user.cliente_nome, // 👈 adiciona o nome do cliente
+      }
+      
+    });
+    
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao fazer login' });
   }
 };
+
 
 const getUsers = async (req, res) => {
   try {
