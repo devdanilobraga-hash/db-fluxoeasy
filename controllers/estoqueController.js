@@ -1,11 +1,11 @@
 const pool = require('../db');
 
-// Registrar entrada no estoque
+// Adiciona entrada no estoque (criação ou atualização de lote)
 const addEstoque = async (entrada) => {
   const { id: entrada_id, produto_id, cliente_id, quantidade, data_validade } = entrada;
 
   try {
-    // Verifica se já existe lote igual
+    // Verifica se já existe lote com mesmo produto e validade
     const existing = await pool.query(
       `SELECT * FROM estoque 
        WHERE produto_id=$1 AND cliente_id=$2 AND data_validade=$3`,
@@ -21,7 +21,7 @@ const addEstoque = async (entrada) => {
         [quantidade, existing.rows[0].id]
       );
     } else {
-      // Cria novo lote no estoque
+      // Cria novo lote
       await pool.query(
         `INSERT INTO estoque (produto_id, cliente_id, quantidade, data_validade, entrada_id, data_atualizacao)
          VALUES ($1,$2,$3,$4,$5,NOW())`,
@@ -34,12 +34,12 @@ const addEstoque = async (entrada) => {
   }
 };
 
-// Registrar saída (ex: venda)
+// Remove quantidade do estoque (saída, venda, consumo)
 const removeEstoque = async (cliente_id, produto_id, quantidade) => {
   try {
     let restante = quantidade;
 
-    // Busca lotes ordenados por validade (primeiro que vence sai primeiro)
+    // Ordena por validade: FIFO
     const lotes = await pool.query(
       `SELECT * FROM estoque 
        WHERE produto_id=$1 AND cliente_id=$2 AND quantidade > 0
@@ -51,18 +51,14 @@ const removeEstoque = async (cliente_id, produto_id, quantidade) => {
       if (restante <= 0) break;
 
       if (lote.quantidade <= restante) {
-        // Consome lote inteiro
         restante -= lote.quantidade;
         await pool.query(
           `UPDATE estoque SET quantidade=0, data_atualizacao=NOW() WHERE id=$1`,
           [lote.id]
         );
       } else {
-        // Consome parte do lote
         await pool.query(
-          `UPDATE estoque 
-           SET quantidade = quantidade - $1, data_atualizacao=NOW() 
-           WHERE id=$2`,
+          `UPDATE estoque SET quantidade = quantidade - $1, data_atualizacao=NOW() WHERE id=$2`,
           [restante, lote.id]
         );
         restante = 0;

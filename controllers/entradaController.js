@@ -1,23 +1,21 @@
 const pool = require('../db');
+const { addEstoque, removeEstoque } = require('./estoqueController');
 
 // Criar entrada
 const createEntrada = async (req, res) => {
   const { produto_id, quantidade, preco_custo, data_validade, observacao } = req.body;
-  const cliente_id = req.user.cliente_id; // do JWT
-  const usuario_id = req.user.id; // usuário logado
+  const cliente_id = req.user.cliente_id;
+  const usuario_id = req.user.id;
 
   try {
     const result = await pool.query(
       `INSERT INTO entrada (cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade, data_entrada, observacao)
        VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7) RETURNING *`,
-      [cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade, observacao]
+      [cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade || null, observacao]
     );
 
-    // Atualizar estoque do produto
-    await pool.query(
-      `UPDATE produto SET estoque = estoque + $1 WHERE id = $2 AND cliente_id = $3`,
-      [quantidade, produto_id, cliente_id]
-    );
+    // Atualiza estoque automaticamente
+    await addEstoque(result.rows[0]);
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -43,6 +41,47 @@ const getEntradas = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar entradas' });
+  }
+};
+
+// Atualizar entrada
+const updateEntrada = async (req, res) => {
+  const { id } = req.params;
+  const { produto_id, quantidade, preco_custo, data_validade, observacao } = req.body;
+  const cliente_id = req.user.cliente_id;
+
+  try {
+    // Recuperar entrada antiga
+    const oldEntrada = await pool.query(
+      'SELECT * FROM entrada WHERE id=$1 AND cliente_id=$2',
+      [id, cliente_id]
+    );
+
+    if (oldEntrada.rows.length === 0)
+      return res.status(404).json({ error: 'Entrada não encontrada' });
+
+    const old = oldEntrada.rows[0];
+
+    // Atualizar entrada
+    const result = await pool.query(
+      `UPDATE entrada
+       SET produto_id=$1, quantidade=$2, preco_custo=$3, data_validade=$4, observacao=$5
+       WHERE id=$6 AND cliente_id=$7
+       RETURNING *`,
+      [produto_id, quantidade, preco_custo, data_validade || null, observacao, id, cliente_id]
+    );
+
+    // Ajustar estoque
+    // 1. Remove quantidade antiga do lote antigo
+    await removeEstoque(cliente_id, old.produto_id, old.quantidade);
+
+    // 2. Adiciona a nova entrada
+    await addEstoque(result.rows[0]);
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar entrada' });
   }
 };
 
@@ -77,24 +116,22 @@ const deleteEntrada = async (req, res) => {
   const cliente_id = req.user.cliente_id;
 
   try {
-    // Recuperar entrada antes de deletar (para ajustar estoque)
     const entrada = await pool.query(
       'SELECT * FROM entrada WHERE id=$1 AND cliente_id=$2',
       [id, cliente_id]
     );
 
-    if (entrada.rows.length === 0) 
+    if (entrada.rows.length === 0)
       return res.status(404).json({ error: 'Entrada não encontrada' });
 
-    const { produto_id, quantidade } = entrada.rows[0];
+    const e = entrada.rows[0];
 
-    // Deletar entrada
-    await pool.query('DELETE FROM entrada WHERE id=$1 AND cliente_id=$2', [id, cliente_id]);
+    // Remove do estoque
+    await removeEstoque(cliente_id, e.produto_id, e.quantidade);
 
-    // Ajustar estoque
     await pool.query(
-      'UPDATE produto SET estoque = estoque - $1 WHERE id = $2 AND cliente_id=$3',
-      [quantidade, produto_id, cliente_id]
+      'DELETE FROM entrada WHERE id=$1 AND cliente_id=$2',
+      [id, cliente_id]
     );
 
     res.json({ message: 'Entrada deletada com sucesso e estoque ajustado' });
@@ -104,4 +141,4 @@ const deleteEntrada = async (req, res) => {
   }
 };
 
-module.exports = { createEntrada, getEntradas, getEntradaById, deleteEntrada };
+module.exports = { createEntrada, getEntradas, getEntradaById, deleteEntrada, updateEntrada };

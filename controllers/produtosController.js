@@ -47,12 +47,14 @@ const getProdutoById = async (req, res) => {
 // Atualizar produto
 const updateProduto = async (req, res) => {
   const { id } = req.params;
-  const { nome, descricao, ean, preco, estoque, ativo } = req.body;
+  const { nome, descricao, ean, preco, ativo } = req.body; // sem estoque
   try {
     const result = await pool.query(
-      `UPDATE produto SET nome=$1, descricao=$2, ean=$3, preco=$4, estoque=$5, ativo=$6
-       WHERE id=$7 RETURNING *`,
-      [nome, descricao, ean, preco, estoque, ativo, id]
+      `UPDATE produto 
+       SET nome=$1, descricao=$2, ean=$3, preco=$4, ativo=$5
+       WHERE id=$6
+       RETURNING *`,
+      [nome, descricao, ean, preco, ativo, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Produto não encontrado' });
     res.json(result.rows[0]);
