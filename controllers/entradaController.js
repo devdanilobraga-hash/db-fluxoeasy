@@ -8,28 +8,59 @@ const createEntrada = async (req, res) => {
   const usuario_id = req.user.id;
 
   try {
-    const result = await pool.query(
-      `INSERT INTO entrada (cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade, data_entrada, observacao)
-       VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7) RETURNING *`,
-      [cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade || null, observacao]
+    // Verifica se já existe entrada igual (mesmo produto, cliente, validade, preço e observação)
+    const existing = await pool.query(
+      `SELECT * FROM entrada 
+       WHERE cliente_id=$1 
+         AND produto_id=$2 
+         AND preco_custo=$3 
+         AND data_validade IS NOT DISTINCT FROM $4
+         AND observacao IS NOT DISTINCT FROM $5`,
+      [cliente_id, produto_id, preco_custo, data_validade || null, observacao || null]
     );
 
-    // Atualiza estoque automaticamente
-    await addEstoque(result.rows[0]);
+    let entrada;
 
-    res.status(201).json(result.rows[0]);
+    if (existing.rows.length > 0) {
+      // Se já existe, soma a quantidade
+      const id = existing.rows[0].id;
+      const result = await pool.query(
+        `UPDATE entrada 
+         SET quantidade = quantidade + $1, data_entrada = NOW()
+         WHERE id=$2 
+         RETURNING *`,
+        [quantidade, id]
+      );
+      entrada = result.rows[0];
+    } else {
+      // Se não existe, cria nova
+      const result = await pool.query(
+        `INSERT INTO entrada 
+         (cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade, data_entrada, observacao)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7) 
+         RETURNING *`,
+        [cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade || null, observacao]
+      );
+      entrada = result.rows[0];
+    }
+
+    // Atualiza estoque automaticamente
+    await addEstoque(entrada);
+
+    res.status(201).json(entrada);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao registrar entrada' });
   }
 };
 
+
 // Listar entradas
 const getEntradas = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   try {
     const result = await pool.query(
-      `SELECT e.*, p.nome AS produto_nome, u.nome AS usuario_nome
+      `SELECT e.*, p.nome AS produto_nome, p.ean, u.nome AS usuario_nome
        FROM entrada e
        JOIN produto p ON e.produto_id = p.id
        JOIN usuario u ON e.usuario_id = u.id
@@ -43,6 +74,7 @@ const getEntradas = async (req, res) => {
     res.status(500).json({ error: 'Erro ao buscar entradas' });
   }
 };
+
 
 // Atualizar entrada
 const updateEntrada = async (req, res) => {
