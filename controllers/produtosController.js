@@ -34,6 +34,25 @@ const getProdutos = async (req, res) => {
   }
 };
 
+// Ativar produto
+const ativarProduto = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'UPDATE produto SET ativo = true WHERE id = $1 RETURNING *',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Produto não encontrado" });
+    }
+    res.json({ message: "Produto ativado com sucesso", produto: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao ativar produto" });
+  }
+};
+
+
 
 // Desativar produto (não exclui mais)
 const desativarProduto = async (req, res) => {
@@ -89,4 +108,4 @@ const updateProduto = async (req, res) => {
 };
 
 
-module.exports = { createProduto, getProdutos, getProdutoById, updateProduto, desativarProduto };
+module.exports = { createProduto, getProdutos, getProdutoById, updateProduto, desativarProduto, ativarProduto };
