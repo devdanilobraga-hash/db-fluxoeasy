@@ -9,5 +9,4 @@ router.use(authMiddleware);
 router.get('/', getEstoque);
 router.put('/:id/valor-venda', putEstoque);
 
-
 module.exports = router;
