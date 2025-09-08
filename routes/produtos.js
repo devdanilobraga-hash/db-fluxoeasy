@@ -5,7 +5,7 @@ const {
   getProdutos, 
   getProdutoById, 
   updateProduto, 
-  deleteProduto 
+  desativarProduto
 } = require('../controllers/produtosController');
 const auth = require('../middleware/auth');
 
@@ -13,6 +13,6 @@ router.post('/', auth, createProduto);          // criar produto
 router.get('/', auth, getProdutos);            // listar todos
 router.get('/:id', auth, getProdutoById);      // buscar por id
 router.put('/:id', auth, updateProduto);       // atualizar
-router.delete('/:id', auth, deleteProduto);    // deletar
+router.put('/:id/desativar', auth, desativarProduto); // ✅ desativar
 
 module.exports = router;

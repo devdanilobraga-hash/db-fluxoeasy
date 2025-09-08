@@ -1,4 +1,4 @@
-const { pool } = require('../db');
+const  pool  = require('../db');
 
 const criarVenda = async (req, res) => {
   const { cliente_id } = req.user;
