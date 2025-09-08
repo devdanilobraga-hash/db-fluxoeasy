@@ -6,6 +6,6 @@ const authMiddleware = require('../middleware/auth');
 router.use(authMiddleware);
 
 // apenas listagem direta
-router.get('/', getEstoque);
+router.get('/', getEstoque);    
 
 module.exports = router;
