@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { registerUser, loginUser, getUsers } = require('../controllers/usuariosController');
+const { registerUser, loginUser, getUsers, desativarUser, ativarUser } = require('../controllers/usuariosController');
 const auth = require('../middleware/auth');
 
 router.post('/register', auth, registerUser);   // cadastro
 router.post('/login', loginUser);         // login
 router.get('/', auth, getUsers);          // lista usuários (protegido)
+router.put('/:id/desativar', auth, desativarUser); // ✅ desativar
+router.put('/:id/ativar', auth, ativarUser);
 
 module.exports = router;
