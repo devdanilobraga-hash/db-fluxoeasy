@@ -14,6 +14,12 @@ const createProduto = async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
+
+    // Verifica se é violação de chave única (EAN duplicado)
+    if (err.code === '23505' && err.constraint === 'ux_produto_cliente_ean') {
+      return res.status(400).json({ error: 'EAN duplicado' });
+    }
+    
     res.status(500).json({ error: 'Erro ao criar produto' });
   }
 };

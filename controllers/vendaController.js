@@ -69,7 +69,7 @@ const criarVenda = async (req, res) => {
 
       // Remove do estoque
       await pool.query(
-        `UPDATE estoque SET quantidade = quantidade - $1, data_atualizacao = NOW() WHERE id = $2`,
+        `UPDATE estoque SET quantidade = quantidade - $1, data_atualizacao =CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo' WHERE id = $2`,
         [item.quantidade, item.estoque_id]
       );
     }

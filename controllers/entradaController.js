@@ -21,39 +21,59 @@ const createEntrada = async (req, res) => {
 
     let entrada;
 
-    if (existing.rows.length > 0) {
-      // Se já existe, soma a quantidade
-      const id = existing.rows[0].id;
-      const result = await pool.query(
-        `UPDATE entrada 
-         SET quantidade = quantidade + $1, data_entrada = NOW()
-         WHERE id=$2 
-         RETURNING *`,
-        [quantidade, id]
-      );
-      entrada = result.rows[0];
-    } else {
-      // Se não existe, cria nova
-      const result = await pool.query(
-        `INSERT INTO entrada 
-         (cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade, data_entrada, observacao)
-         VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7) 
-         RETURNING *`,
-        [cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade || null, observacao]
-      );
-      entrada = result.rows[0];
-    }
+   // Atualiza apenas a quantidade da entrada existente
+if (existing.rows.length > 0) {
+  const id = existing.rows[0].id;
 
-    // Atualiza estoque automaticamente
-    await addEstoque(entrada);
+  const result = await pool.query(
+    `UPDATE entrada 
+     SET quantidade = quantidade + $1, data_entrada = CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+     WHERE id=$2 
+     RETURNING *`,
+    [quantidade, id]
+  );
+
+  const entrada = result.rows[0];
+
+  // 🔹 Atualiza estoque apenas com a quantidade nova
+  if (quantidade > 0) {
+    await addEstoque({
+      entrada_id: entrada.id,
+      cliente_id,
+      produto_id,
+      quantidade,
+      preco_custo,
+      data_validade: data_validade || null,
+    });
+  }
+
+  res.status(201).json(entrada);
+
+} else {
+  // Cria nova entrada
+  const result = await pool.query(
+    `INSERT INTO entrada 
+      (cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade, data_entrada, observacao)
+      VALUES ($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo',$7) 
+      RETURNING *`,
+    [cliente_id, produto_id, usuario_id, quantidade, preco_custo, data_validade || null, observacao]
+  );
+
+  const entrada = result.rows[0];
+
+  // Adiciona ao estoque
+  await addEstoque(entrada);
+
+  res.status(201).json(entrada);
+}
 
     res.status(201).json(entrada);
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao registrar entrada' });
   }
 };
-
 
 // Listar entradas
 const getEntradas = async (req, res) => {
