@@ -82,4 +82,5 @@ const criarVenda = async (req, res) => {
   }
 };
 
+
 module.exports = { criarVenda };

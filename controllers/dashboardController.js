@@ -17,6 +17,52 @@ const totalProdutos = async (req, res) => {
   }
 };
 
+// Relatório de vendas com filtro
+const relatorioVendas = async (req, res) => {
+  const { cliente_id } = req.user;
+  const { dataInicio, dataFim, produto_id, forma_pagamento } = req.query;
+
+  try {
+    let query = `
+      SELECT v.id as venda_id, v.data_criacao, v.forma_pagamento, v.valor_total, v.valor_pago, v.troco, v.desconto,
+             vi.produto_id, p.nome as produto_nome, vi.quantidade, vi.valor_unitario, vi.valor_total as valor_item
+      FROM venda v
+      JOIN venda_item vi ON vi.venda_id = v.id
+      JOIN produto p ON p.id = vi.produto_id
+      WHERE v.cliente_id = $1
+    `;
+
+    const params = [cliente_id];
+    let idx = 2;
+
+    if (dataInicio) {
+      query += ` AND v.data_criacao::date >= $${idx++}`;
+      params.push(dataInicio);
+    }
+    if (dataFim) {
+      query += ` AND v.data_criacao::date <= $${idx++}`;
+      params.push(dataFim);
+    }
+    if (produto_id) {
+      query += ` AND vi.produto_id = $${idx++}`;
+      params.push(produto_id);
+    }
+    if (forma_pagamento) {
+      query += ` AND v.forma_pagamento = $${idx++}`;
+      params.push(forma_pagamento);
+    }
+
+    query += " ORDER BY v.data_criacao DESC";
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao gerar relatório de vendas." });
+  }
+};
+
 // Quantidade total de volumes no estoque
 const totalVolumesEstoque = async (req, res) => {
   const cliente_id = req.user.cliente_id;
@@ -82,5 +128,6 @@ module.exports = {
   totalProdutos,
   totalVolumesEstoque,
   movimentacaoEntradaDiaria,
-  movimentacaoVendaDiaria
+  movimentacaoVendaDiaria,
+  relatorioVendas
 };
