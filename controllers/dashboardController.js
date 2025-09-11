@@ -17,6 +17,46 @@ const totalProdutos = async (req, res) => {
   }
 };
 
+const entradasUltimosDias = async (req, res) => {
+  const cliente_id = req.user.cliente_id;
+  try {
+    const result = await pool.query(
+      `SELECT DATE(data_entrada) AS data_entrada, SUM(quantidade) AS quantidade
+       FROM entrada
+       WHERE cliente_id = $1
+       GROUP BY DATE(data_entrada)
+       ORDER BY DATE(data_entrada) DESC
+       LIMIT 10`,
+      [cliente_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar entradas" });
+  }
+};
+
+
+const vendasUltimosDias = async (req, res) => {
+  const cliente_id = req.user.cliente_id;
+  try {
+    const result = await pool.query(
+      `SELECT DATE(data_criacao) AS data_criacao, SUM(valor_total) AS valor_total
+       FROM venda
+       WHERE cliente_id = $1
+       GROUP BY DATE(data_criacao)
+       ORDER BY DATE(data_criacao) DESC
+       LIMIT 10`,
+      [cliente_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar vendas" });
+  }
+};
+
+
 // Relatório de vendas com filtro
 const relatorioVendas = async (req, res) => {
   const { cliente_id } = req.user;
@@ -129,5 +169,7 @@ module.exports = {
   totalVolumesEstoque,
   movimentacaoEntradaDiaria,
   movimentacaoVendaDiaria,
-  relatorioVendas
+  relatorioVendas,
+  entradasUltimosDias,
+  vendasUltimosDias
 };
