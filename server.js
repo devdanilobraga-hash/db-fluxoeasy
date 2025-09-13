@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const app = express();
+const path = require('path');
 
 // 🚨 Permite requisições do frontend
 app.use(cors({
@@ -14,6 +15,11 @@ app.use(express.json());
 app.get("/ping", (req, res) => {
   res.json({ status: "ok", time: new Date() });
 });
+
+
+// Serve arquivos da pasta uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 
 // Rotas
 app.use("/api/usuarios", require("./routes/usuarios"));

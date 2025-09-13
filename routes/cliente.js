@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth'); // seu middleware que decodifica o JWT
-const { getClientes, getClienteById, updateCliente } = require('../controllers/clienteController');
+const auth = require('../middleware/auth'); 
+const { getClientes, getClienteById, updateCliente, uploadLogo, upload } = require('../controllers/clienteController');
 
-// Todas as rotas usam autenticação
 router.use(auth);
 
-router.get('/', getClientes);        // retorna apenas o cliente vinculado
-router.get('/:id', getClienteById);  // só permite acessar se for o mesmo cliente
-router.put('/:id', updateCliente);   // só permite atualizar o cliente vinculado
+router.get('/', getClientes);        
+router.get('/:id', getClienteById);  
+router.put('/:id', updateCliente);   
+router.post('/:id/upload-logo', upload.single('logo'), uploadLogo);
 
 module.exports = router;
