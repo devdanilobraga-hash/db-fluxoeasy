@@ -1,4 +1,4 @@
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs'); 
 
 (async () => {
   const hash = await bcrypt.hash('jms11728', 10);
