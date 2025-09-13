@@ -23,19 +23,25 @@ const upload = multer({ storage });
 
 // Listar apenas o cliente vinculado ao usuário logado
 const getClientes = async (req, res) => {
-  const cliente_id = req.user.cliente_id; // pega do token JWT
   try {
-    const result = await pool.query(
-      'SELECT * FROM cliente WHERE id = $1',
-      [cliente_id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
-    res.json(result.rows[0]); // retorna apenas o cliente vinculado
+    let result;
+    if (req.user.nivel_acesso === "superadmin") {
+      // Superadmin vê todos os clientes
+      result = await pool.query('SELECT * FROM cliente ORDER BY nome');
+      return res.json(result.rows);
+    } else {
+      // Usuário normal vê apenas seu cliente
+      const cliente_id = req.user.cliente_id;
+      result = await pool.query('SELECT * FROM cliente WHERE id = $1', [cliente_id]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
+      return res.json(result.rows[0]);
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar cliente' });
   }
 };
+
 
 // Buscar cliente por ID (opcional, mas só permite acessar se for o mesmo vinculado)
 const getClienteById = async (req, res) => {
@@ -97,4 +103,43 @@ const uploadLogo = async (req, res) => {
   }
 };
 
-module.exports = { getClientes, getClienteById, updateCliente, uploadLogo, upload };
+const getAllClientes = async (req, res) => {
+  if (req.user.nivel_acesso !== "superadmin") {
+    return res.status(403).json({ error: "Acesso negado" });
+  }
+
+  try {
+    const result = await pool.query('SELECT id, nome FROM cliente ORDER BY nome');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao listar clientes' });
+  }
+};
+
+
+const createCliente = async (req, res) => {
+  if (req.user.nivel_acesso !== "superadmin") {
+    return res.status(403).json({ error: "Acesso negado" });
+  }
+
+  const { nome, cnpj_cpf, email, telefone, endereco } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO cliente (nome, cnpj_cpf, email, telefone, endereco, ativo)
+       VALUES ($1,$2,$3,$4,$5,true)
+       RETURNING *`,
+      [nome, cnpj_cpf, email, telefone, endereco]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao criar cliente" });
+  }
+};
+
+
+module.exports = { 
+  getClientes, getClienteById, updateCliente, uploadLogo, upload, 
+  getAllClientes, createCliente
+};

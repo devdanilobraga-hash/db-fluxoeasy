@@ -3,8 +3,13 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const registerUser = async (req, res) => {
-  const { nome, login, senha, cargo, nivel_acesso } = req.body;
-  const cliente_id = req.user.cliente_id; // pega do token JWT do usuário logado
+  const { nome, login, senha, cargo, nivel_acesso, cliente_id: clienteSelecionado } = req.body;
+
+  // Para superadmin, permitir cliente_id null
+  let cliente_id = clienteSelecionado;
+  if (nivel_acesso !== "superadmin" && !cliente_id) {
+    return res.status(400).json({ error: "É necessário selecionar um cliente." });
+  }
 
   try {
     const hashedPassword = await bcrypt.hash(senha, 10);
@@ -20,6 +25,7 @@ const registerUser = async (req, res) => {
     res.status(500).json({ error: 'Erro ao cadastrar usuário' });
   }
 };
+
 
 // Desativar usuário (não exclui mais)
 const desativarUser = async (req, res) => {
@@ -64,12 +70,12 @@ const loginUser = async (req, res) => {
     const result = await pool.query(
       `SELECT u.*, c.nome AS cliente_nome
        FROM usuario u
-       JOIN cliente c ON u.cliente_id = c.id
+       LEFT JOIN cliente c ON u.cliente_id = c.id
        WHERE u.login = $1`,
       [login]
     );
 
-    if (result.rows.length === 0) 
+    if (result.rows.length === 0)
       return res.status(400).json({ error: 'Usuário não encontrado' });
 
     const user = result.rows[0];
@@ -81,11 +87,13 @@ const loginUser = async (req, res) => {
     const match = await bcrypt.compare(senha, user.senha);
     if (!match) return res.status(400).json({ error: 'Senha incorreta' });
 
-    const token = jwt.sign(
-      { id: user.id, nivel_acesso: user.nivel_acesso, cliente_id: user.cliente_id },
-      process.env.JWT_SECRET,
-      { expiresIn: '8h' }
-    );
+    // 🔑 se for superadmin, não vincula cliente_id no token
+    const tokenPayload = { id: user.id, nivel_acesso: user.nivel_acesso };
+    if (user.nivel_acesso !== "superadmin") {
+      tokenPayload.cliente_id = user.cliente_id;
+    }
+
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '8h' });
 
     res.json({
       token,
@@ -104,15 +112,30 @@ const loginUser = async (req, res) => {
   }
 };
 
+
 const getUsers = async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, nome, login, cargo, nivel_acesso, cliente_id, ativo FROM usuario');
+    const { nivel_acesso, cliente_id } = req.user; // vem do token JWT
+    let result;
+
+    if (nivel_acesso === "superadmin") {
+      // superadmin vê todos
+      result = await pool.query('SELECT id, nome, login, cargo, nivel_acesso, cliente_id, ativo FROM usuario');
+    } else {
+      // outros usuários só veem usuários do mesmo cliente
+      result = await pool.query(
+        'SELECT id, nome, login, cargo, nivel_acesso, cliente_id, ativo FROM usuario WHERE cliente_id = $1',
+        [cliente_id]
+      );
+    }
+
     res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar usuários' });
   }
 };
+
 
 const updateUser = async (req, res) => {
   const { id } = req.params;
