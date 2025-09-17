@@ -1,7 +1,6 @@
 const pool = require('../db');
 
 // Adiciona entrada no estoque (criação ou atualização de lote)
-// Adiciona entrada no estoque (criação ou atualização de lote)
 const addEstoque = async (entrada) => {
   const { id: entrada_id, produto_id, cliente_id, quantidade, data_validade, preco_custo } = entrada;
 
@@ -133,7 +132,15 @@ const getEstoque = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   try {
     const result = await pool.query(
-      `SELECT es.id, p.nome AS produto_nome, p.ean, es.quantidade, es.preco_custo, es.valor_venda, es.data_validade, es.data_atualizacao
+      `SELECT es.id, 
+              es.produto_id,  -- ✅ ADICIONAR ESTA LINHA
+              p.nome AS produto_nome, 
+              p.ean, 
+              es.quantidade, 
+              es.preco_custo, 
+              es.valor_venda, 
+              es.data_validade, 
+              es.data_atualizacao
        FROM estoque es
        JOIN produto p ON es.produto_id = p.id
        JOIN entrada e ON es.entrada_id = e.id
@@ -147,6 +154,7 @@ const getEstoque = async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar estoque" });
   }
 };
+
 
 
 
