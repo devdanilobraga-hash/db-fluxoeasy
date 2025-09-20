@@ -67,27 +67,43 @@ const loginUser = async (req, res) => {
   const { login, senha } = req.body;
 
   try {
-    const result = await pool.query(
-      `SELECT u.*, c.nome AS cliente_nome
-       FROM usuario u
-       LEFT JOIN cliente c ON u.cliente_id = c.id
-       WHERE u.login = $1`,
-      [login]
-    );
+    const result = await pool.query(`
+      SELECT u.*, c.nome AS cliente_nome, c.ativo AS cliente_ativo
+      FROM usuario u
+      LEFT JOIN cliente c ON u.cliente_id = c.id
+      WHERE u.login = $1
+    `, [login]);
 
     if (result.rows.length === 0)
       return res.status(400).json({ error: 'Usuário não encontrado' });
 
     const user = result.rows[0];
 
+    // Bloqueia usuário inativo
     if (!user.ativo) {
       return res.status(403).json({ error: 'Usuário inativo. Contate o administrador.' });
     }
 
+    // Bloqueia acesso se o cliente estiver inativo
+    let clienteAtivo = true;
+    if (user.cliente_id) {
+      // garante boolean correto
+      if (typeof user.cliente_ativo === 'boolean') {
+        clienteAtivo = user.cliente_ativo;
+      } else {
+        clienteAtivo = user.cliente_ativo === 't' || user.cliente_ativo === 'true';
+      }
+    }
+
+    if (!clienteAtivo) {
+      return res.status(403).json({ error: 'Cliente inativo. Contate o suporte.' });
+    }
+
+    // Verifica senha
     const match = await bcrypt.compare(senha, user.senha);
     if (!match) return res.status(400).json({ error: 'Senha incorreta' });
 
-    // 🔑 se for superadmin, não vincula cliente_id no token
+    // Cria token JWT
     const tokenPayload = { id: user.id, nivel_acesso: user.nivel_acesso };
     if (user.nivel_acesso !== "superadmin") {
       tokenPayload.cliente_id = user.cliente_id;
