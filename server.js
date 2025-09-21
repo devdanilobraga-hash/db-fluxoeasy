@@ -4,6 +4,9 @@ const axios = require("axios"); // para fazer o ping
 require("dotenv").config();
 const app = express();
 const path = require('path');
+const checkClienteAtivo = require("./middleware/checkClienteAtivo");
+const auth = require("./middleware/auth");
+
 
 // 🚨 Permite requisições do frontend
 app.use(cors({
@@ -34,14 +37,15 @@ pingServer();
 // Serve arquivos da pasta uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Rotas
-app.use("/api/usuarios", require("./routes/usuarios"));
-app.use("/api/produtos", require("./routes/produtos"));
-app.use("/api/entrada", require("./routes/entrada"));
-app.use("/api/estoque", require("./routes/estoque"));
-app.use("/api/venda", require("./routes/venda"));
-app.use("/api/dashboard", require("./routes/dashboard"));
 app.use('/api/clientes',require("./routes/cliente"));
+app.use("/api/usuarios", require("./routes/usuarios"));
+
+// Rotas
+app.use("/api/produtos", auth, checkClienteAtivo, require("./routes/produtos"));
+app.use("/api/entrada", auth, checkClienteAtivo, require("./routes/entrada"));
+app.use("/api/estoque", auth, checkClienteAtivo, require("./routes/estoque"));
+app.use("/api/venda", auth, checkClienteAtivo, require("./routes/venda"));
+app.use("/api/dashboard", auth, checkClienteAtivo, require("./routes/dashboard"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Backend rodando na porta ${PORT}`));
