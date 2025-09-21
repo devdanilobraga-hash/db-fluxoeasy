@@ -127,13 +127,13 @@ const removeEstoque = async (cliente_id, produto_id, quantidade) => {
   }
 };
 
-// Listar estoque por cliente
+// Listar estoque por cliente (somente lotes com quantidade > 0)
 const getEstoque = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   try {
     const result = await pool.query(
       `SELECT es.id, 
-              es.produto_id,  -- ✅ ADICIONAR ESTA LINHA
+              es.produto_id,
               p.nome AS produto_nome, 
               p.ean, 
               es.quantidade, 
@@ -145,6 +145,7 @@ const getEstoque = async (req, res) => {
        JOIN produto p ON es.produto_id = p.id
        JOIN entrada e ON es.entrada_id = e.id
        WHERE es.cliente_id = $1
+         AND es.quantidade > 0   -- ✅ FILTRO PARA NÃO EXIBIR QUANTIDADE ZERO
        ORDER BY p.nome ASC, es.data_validade ASC`,
       [cliente_id]
     );
