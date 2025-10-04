@@ -1,11 +1,11 @@
 const pool = require('../db');
 
 // 🔹 Listar todos os planos ativos
+// 🔹 Listar todos os planos, ativos e inativos
 const getPlanos = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT * FROM planos 
-      WHERE ativo = true
       ORDER BY valor ASC
     `);
     res.json(result.rows);
@@ -14,6 +14,7 @@ const getPlanos = async (req, res) => {
     res.status(500).json({ error: 'Erro ao listar planos' });
   }
 };
+
 
 // 🔹 Buscar plano por ID
 const getPlanoById = async (req, res) => {
