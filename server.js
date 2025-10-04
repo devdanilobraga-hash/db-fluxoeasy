@@ -46,6 +46,7 @@ app.use("/api/entrada", auth, checkClienteAtivo, require("./routes/entrada"));
 app.use("/api/estoque", auth, checkClienteAtivo, require("./routes/estoque"));
 app.use("/api/venda", auth, checkClienteAtivo, require("./routes/venda"));
 app.use("/api/dashboard", auth, checkClienteAtivo, require("./routes/dashboard"));
+app.use("/api/planos", auth, checkClienteAtivo, require("./routes/planos"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Backend rodando na porta ${PORT}`));
