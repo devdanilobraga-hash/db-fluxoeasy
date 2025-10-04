@@ -9,12 +9,13 @@ const {
   deletePlano
 } = require('../controllers/planosController');
 
-router.use(auth);
+// 🔹 Rotas públicas (sem token)
+router.get('/', getPlanos);       // listar todos os planos (ativos/inativos)
+router.get('/:id', getPlanoById); // buscar um plano específico
 
-router.get('/', getPlanos);
-router.get('/:id', getPlanoById);
-router.post('/', createPlano);      
-router.put('/:id', updatePlano);    
-router.delete('/:id', deletePlano); 
+// 🔹 Rotas privadas (somente admin)
+router.post('/', auth, createPlano);      
+router.put('/:id', auth, updatePlano);    
+router.delete('/:id', auth, deletePlano); 
 
 module.exports = router;
