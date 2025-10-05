@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth'); 
-const { getClientes, getClienteById, updateCliente, uploadLogo, upload, getAllClientes, createCliente } = require('../controllers/clienteController');
+const { getClientes, getClienteById, updateCliente, uploadLogo, upload, getAllClientes, createCliente, getClienteByCpfCnpj } = require('../controllers/clienteController');
+
+// Rota pública (sem token) para o bot do WhatsApp
+router.get('/cpf/:cpf_cnpj', getClienteByCpfCnpj);
 
 router.use(auth);
 

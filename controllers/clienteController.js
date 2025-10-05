@@ -194,8 +194,34 @@ const createCliente = async (req, res) => {
 };
 
 
+const getClienteByCpfCnpj = async (req, res) => {
+  const { cpf_cnpj } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM cliente WHERE REPLACE(cnpj_cpf, '.', '') = $1 OR REPLACE(cnpj_cpf, '/', '') = $1 OR REPLACE(cnpj_cpf, '-', '') = $1`,
+      [cpf_cnpj]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json(null);
+    }
+
+    return res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar cliente por CPF/CNPJ' });
+  }
+};
 
 module.exports = { 
-  getClientes, getClienteById, updateCliente, uploadLogo, upload, 
-  getAllClientes, createCliente
+  getClientes, 
+  getClienteById, 
+  updateCliente, 
+  uploadLogo, 
+  upload, 
+  getAllClientes, 
+  createCliente,
+  getClienteByCpfCnpj 
 };
+
