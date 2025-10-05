@@ -152,8 +152,8 @@ const getAllClientes = async (req, res) => {
   }
 
   try {
-    const result = await pool.query(`
-      SELECT id, nome, ativo, data_pagamento, data_vencimento
+   const result = await pool.query(`
+      SELECT id, nome, cnpj_cpf, email, telefone, endereco, ativo, data_pagamento, data_vencimento
       FROM cliente
       ORDER BY nome
     `);
