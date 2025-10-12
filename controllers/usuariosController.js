@@ -68,7 +68,7 @@ const loginUser = async (req, res) => {
 
   try {
     const result = await pool.query(`
-      SELECT u.*, c.nome AS cliente_nome, c.ativo AS cliente_ativo
+      SELECT u.*, c.nome AS cliente_nome, c.ativo AS cliente_ativo, c.data_vencimento
       FROM usuario u
       LEFT JOIN cliente c ON u.cliente_id = c.id
       WHERE u.login = $1
@@ -84,10 +84,23 @@ const loginUser = async (req, res) => {
       return res.status(403).json({ error: 'Usuário inativo. Contate o administrador.' });
     }
 
+    // Verifica se o cliente existe e se está vencido
+    if (user.cliente_id && user.cliente_ativo) {
+      const dataVencimento = new Date(user.data_vencimento);
+      const hoje = new Date();
+
+      // Se a data de vencimento for anterior à data atual
+      if (dataVencimento < hoje) {
+        // Atualiza o cliente para inativo no banco
+        await pool.query('UPDATE cliente SET ativo = false WHERE id = $1', [user.cliente_id]);
+        return res.status(403).json({ error: 'Cliente vencido. Contate o suporte.' });
+      }
+    }
+
     // Bloqueia acesso se o cliente estiver inativo
     let clienteAtivo = true;
     if (user.cliente_id) {
-      // garante boolean correto
+      // Garante boolean correto
       if (typeof user.cliente_ativo === 'boolean') {
         clienteAtivo = user.cliente_ativo;
       } else {
