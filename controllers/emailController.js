@@ -58,15 +58,27 @@ const cadastrarEmail = async (req, res) => {
   }
 };
 
-// ✅ Desativar e-mail
+// Desativar e-mail
 const desativarEmail = async (req, res) => {
   const { id } = req.params;
   try {
     await pool.query("UPDATE emails_autorizados SET ativo = false WHERE id = $1", [id]);
-    res.json({ sucesso: true });
+    res.status(200).json({ sucesso: true, mensagem: "E-mail desativado com sucesso" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro ao desativar e-mail" });
+  }
+};
+
+// Ativar e-mail
+const ativarEmail = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("UPDATE emails_autorizados SET ativo = true WHERE id = $1", [id]);
+    res.status(200).json({ sucesso: true, mensagem: "E-mail reativado com sucesso" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: "Erro ao reativar e-mail" });
   }
 };
 
@@ -74,5 +86,6 @@ module.exports = {
   verificarEmail,
   listarEmails,
   cadastrarEmail,
-  desativarEmail
+  desativarEmail,
+  ativarEmail
 };
