@@ -82,10 +82,23 @@ const ativarEmail = async (req, res) => {
   }
 };
 
+// Deletar e-mail
+const deletarEmail = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("DELETE FROM emails_autorizados WHERE id = $1", [id]);
+    res.status(200).json({ sucesso: true, mensagem: "E-mail deletado com sucesso" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: "Erro ao deletar e-mail" });
+  }
+};
+
 module.exports = {
   verificarEmail,
   listarEmails,
   cadastrarEmail,
   desativarEmail,
-  ativarEmail
+  ativarEmail,
+  deletarEmail 
 };

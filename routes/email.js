@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
-const { verificarEmail, listarEmails, cadastrarEmail, desativarEmail, ativarEmail } = require("../controllers/emailController");
+const { verificarEmail, listarEmails, cadastrarEmail, desativarEmail, ativarEmail, deletarEmail } = require("../controllers/emailController");
+
+// Rota DELETE
+router.delete("/:id", deletarEmail);
 
 // 🔹 Rota pública para verificação (usada pela automação)
 router.post("/verificar", verificarEmail);
