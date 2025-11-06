@@ -77,7 +77,10 @@ const atualizarVencimento = async (req, res) => {
   if (!novaData) return res.status(400).json({ erro: "Nova data de vencimento é obrigatória." });
 
   try {
-    await pool.query("UPDATE emails_autorizados SET data_vencimento = $1 WHERE id = $2", [novaData, id]);
+    await pool.query(
+      "UPDATE emails_autorizados SET data_vencimento = $1, ativo = true WHERE id = $2",
+      [novaData, id]
+    );
     res.status(200).json({ sucesso: true, mensagem: "Data de vencimento atualizada com sucesso" });
   } catch (err) {
     console.error(err);
