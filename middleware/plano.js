@@ -9,7 +9,7 @@ const getPlano = async (req, res, next) => {
       `SELECT p.*
        FROM cliente c
        JOIN planos p ON c.plano_id = p.id
-       WHERE c.id = $1`,
+      WHERE c.id = $1`,
       [req.user.cliente_id]
     );
 
