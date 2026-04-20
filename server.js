@@ -6,6 +6,7 @@ const app = express();
 const path = require('path');
 const checkClienteAtivo = require("./middleware/checkClienteAtivo");
 const auth = require("./middleware/auth");
+const getPlano = require("./middleware/plano");
 
 
 // 🚨 Permite requisições do frontend
@@ -42,11 +43,11 @@ app.use("/api/usuarios", require("./routes/usuarios"));
 app.use("/api/planos", require("./routes/planos"));
 
 // Rotas
-app.use("/api/produtos", auth, checkClienteAtivo, require("./routes/produtos"));
-app.use("/api/entrada", auth, checkClienteAtivo, require("./routes/entrada"));
-app.use("/api/estoque", auth, checkClienteAtivo, require("./routes/estoque"));
-app.use("/api/venda", auth, checkClienteAtivo, require("./routes/venda"));
-app.use("/api/dashboard", auth, checkClienteAtivo, require("./routes/dashboard"));
+app.use("/api/produtos", auth, checkClienteAtivo, getPlano, require("./routes/produtos"));
+app.use("/api/entrada", auth, checkClienteAtivo, getPlano, require("./routes/entrada"));
+app.use("/api/estoque", auth, checkClienteAtivo, getPlano, require("./routes/estoque"));
+app.use("/api/venda", auth, checkClienteAtivo, getPlano, require("./routes/venda"));
+app.use("/api/dashboard", auth, checkClienteAtivo, getPlano, require("./routes/dashboard"));
 app.use("/api/email", require("./routes/email"));
 
 
