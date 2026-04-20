@@ -1,0 +1,206 @@
+-- =========================
+-- SCHEMA COMPLETO - ORDEM CORRETA
+-- =========================
+
+-- =========================
+-- 1. PLANOS (sem dependências)
+-- =========================
+CREATE TABLE planos (
+  id SERIAL PRIMARY KEY,
+  nome TEXT NOT NULL,
+  valor NUMERIC(10,2) NOT NULL,
+  duracao_dias INTEGER NOT NULL,
+  ativo BOOLEAN DEFAULT true,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =========================
+-- 2. CLIENTE (depende de planos)
+-- =========================
+CREATE TABLE cliente (
+  id SERIAL PRIMARY KEY,
+  nome TEXT NOT NULL,
+  cnpj_cpf TEXT,
+  email TEXT,
+  telefone TEXT,
+  endereco TEXT,
+  logo_url TEXT,
+  ativo BOOLEAN DEFAULT true,
+  data_pagamento DATE,
+  data_vencimento DATE,
+  plano_id INTEGER,
+  cnpj_cpf_limpo TEXT,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_cliente_plano
+    FOREIGN KEY (plano_id) REFERENCES planos(id)
+);
+
+CREATE UNIQUE INDEX ux_cliente_cnpj
+  ON cliente (cnpj_cpf)
+  WHERE cnpj_cpf IS NOT NULL;
+
+CREATE UNIQUE INDEX ux_cliente_cnpj_limpo
+  ON cliente (cnpj_cpf_limpo);
+
+-- =========================
+-- 3. USUARIO (depende de cliente)
+-- =========================
+CREATE TABLE usuario (
+  id SERIAL PRIMARY KEY,
+  nome TEXT NOT NULL,
+  login TEXT NOT NULL UNIQUE,
+  senha TEXT NOT NULL,
+  cargo TEXT,
+  nivel_acesso TEXT NOT NULL,
+  cliente_id INTEGER,
+  ativo BOOLEAN DEFAULT true,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_usuario_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+
+  CONSTRAINT chk_usuario_cliente
+    CHECK (
+      (nivel_acesso = 'superadmin' AND cliente_id IS NULL)
+      OR
+      (nivel_acesso <> 'superadmin' AND cliente_id IS NOT NULL)
+    )
+);
+
+-- =========================
+-- 4. PRODUTO (depende de cliente)
+-- =========================
+CREATE TABLE produto (
+  id SERIAL PRIMARY KEY,
+  nome TEXT NOT NULL,
+  descricao TEXT,
+  ean TEXT,
+  preco_custo NUMERIC(10,2),
+  estoque INTEGER DEFAULT 0,
+  cliente_id INTEGER NOT NULL,
+  ativo BOOLEAN DEFAULT true,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_produto_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id)
+);
+
+CREATE INDEX idx_produto_cliente
+  ON produto (cliente_id);
+
+-- =========================
+-- 5. ENTRADA (depende de cliente, produto, usuario)
+-- =========================
+CREATE TABLE entrada (
+  id SERIAL PRIMARY KEY,
+  cliente_id INTEGER NOT NULL,
+  produto_id INTEGER NOT NULL,
+  usuario_id INTEGER NOT NULL,
+  quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+  preco_custo NUMERIC(10,2) NOT NULL,
+  data_validade DATE,
+  observacao TEXT,
+  data_entrada TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_entrada_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+
+  CONSTRAINT fk_entrada_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id),
+
+  CONSTRAINT fk_entrada_usuario
+    FOREIGN KEY (usuario_id) REFERENCES usuario(id)
+);
+
+CREATE UNIQUE INDEX ux_entrada_unica
+  ON entrada (cliente_id, produto_id, preco_custo, data_validade, observacao);
+
+CREATE INDEX idx_entrada_cliente_data
+  ON entrada (cliente_id, data_entrada);
+
+-- =========================
+-- 6. ESTOQUE (depende de produto, cliente, entrada)
+-- =========================
+CREATE TABLE estoque (
+  id SERIAL PRIMARY KEY,
+  produto_id INTEGER NOT NULL,
+  cliente_id INTEGER NOT NULL,
+  quantidade INTEGER NOT NULL CHECK (quantidade >= 0),
+  preco_custo NUMERIC(10,2) NOT NULL,
+  valor_venda NUMERIC(10,2),
+  data_validade DATE,
+  entrada_id INTEGER,
+  data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_estoque_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id),
+
+  CONSTRAINT fk_estoque_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+
+  CONSTRAINT fk_estoque_entrada
+    FOREIGN KEY (entrada_id) REFERENCES entrada(id),
+
+  CONSTRAINT unique_entrada
+    UNIQUE (entrada_id)
+);
+
+CREATE INDEX idx_estoque_produto_cliente
+  ON estoque (produto_id, cliente_id);
+
+CREATE INDEX idx_estoque_validade
+  ON estoque (data_validade);
+
+CREATE INDEX idx_estoque_busca
+  ON estoque (produto_id, cliente_id, quantidade);
+
+CREATE INDEX idx_estoque_cliente
+  ON estoque (cliente_id);
+
+CREATE UNIQUE INDEX ux_lote_unico
+  ON estoque (produto_id, cliente_id, preco_custo, data_validade);
+
+-- =========================
+-- 7. VENDA (depende de cliente)
+-- =========================
+CREATE TABLE venda (
+  id SERIAL PRIMARY KEY,
+  cliente_id INTEGER NOT NULL,
+  forma_pagamento TEXT NOT NULL,
+  valor_total NUMERIC(10,2) NOT NULL,
+  valor_pago NUMERIC(10,2) DEFAULT 0,
+  troco NUMERIC(10,2) DEFAULT 0,
+  desconto NUMERIC(10,2) DEFAULT 0,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_venda_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+
+  CONSTRAINT chk_forma_pagamento
+    CHECK (forma_pagamento IN ('dinheiro', 'pix', 'cartao'))
+);
+
+CREATE INDEX idx_venda_cliente_data
+  ON venda (cliente_id, criado_em);
+
+-- =========================
+-- 8. VENDA_ITEM (depende de venda, produto)
+-- =========================
+CREATE TABLE venda_item (
+  id SERIAL PRIMARY KEY,
+  venda_id INTEGER NOT NULL,
+  produto_id INTEGER NOT NULL,
+  quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+  valor_unitario NUMERIC(10,2) NOT NULL,
+  valor_total NUMERIC(10,2) NOT NULL,
+
+  CONSTRAINT fk_venda_item_venda
+    FOREIGN KEY (venda_id) REFERENCES venda(id) ON DELETE CASCADE,
+
+  CONSTRAINT fk_venda_item_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id)
+);
+
+CREATE INDEX idx_venda_item_venda
+  ON venda_item (venda_id);

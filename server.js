@@ -48,7 +48,6 @@ app.use("/api/estoque", auth, checkClienteAtivo, require("./routes/estoque"));
 app.use("/api/venda", auth, checkClienteAtivo, require("./routes/venda"));
 app.use("/api/dashboard", auth, checkClienteAtivo, require("./routes/dashboard"));
 app.use("/api/email", require("./routes/email"));
-app.use("/api/candidaturas", require("./routes/candidaturas"));
 
 
 
