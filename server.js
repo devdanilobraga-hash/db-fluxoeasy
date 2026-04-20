@@ -23,7 +23,7 @@ app.get("/ping", (req, res) => {
 
 // Função para dar ping no próprio backend
 const pingServer = () => {
-  axios.get(`https://bdcontrolevendas.onrender.com/ping`)
+  axios.get(`https://bdfluxoeasy.vercel.app/ping`)
     .then(res => console.log(`Ping enviado: ${new Date().toLocaleTimeString()}`))
     .catch(err => console.error("Erro ao enviar ping:", err.message));
 }

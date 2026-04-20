@@ -12,6 +12,11 @@ CREATE TABLE planos (
   duracao_dias INTEGER NOT NULL,
   ativo BOOLEAN DEFAULT true,
   criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  limite_produtos INTEGER,
+  limite_usuarios INTEGER,
+  possui_relatorios BOOLEAN DEFAULT false,
+  possui_nfe BOOLEAN DEFAULT false,
+  possui_avaria BOOLEAN DEFAULT false;
 );
 
 -- =========================
