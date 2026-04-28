@@ -1,4 +1,4 @@
-const pool = require('../db');
+const pool = require("../db");
 
 // Quantidade total de produtos ativos
 const totalProdutos = async (req, res) => {
@@ -8,7 +8,7 @@ const totalProdutos = async (req, res) => {
       `SELECT COUNT(*) AS total_produtos 
        FROM produto 
        WHERE cliente_id=$1 AND ativo=true`,
-      [cliente_id]
+      [cliente_id],
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -27,7 +27,7 @@ const entradasUltimosDias = async (req, res) => {
        GROUP BY DATE(data_entrada)
        ORDER BY DATE(data_entrada) DESC
        LIMIT 10`,
-      [cliente_id]
+      [cliente_id],
     );
     res.json(result.rows);
   } catch (err) {
@@ -36,18 +36,17 @@ const entradasUltimosDias = async (req, res) => {
   }
 };
 
-
 const vendasUltimosDias = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   try {
     const result = await pool.query(
-      `SELECT DATE(data_criacao) AS data_criacao, SUM(valor_total) AS valor_total
-       FROM venda
-       WHERE cliente_id = $1
-       GROUP BY DATE(data_criacao)
-       ORDER BY DATE(data_criacao) DESC
-       LIMIT 10`,
-      [cliente_id]
+      `SELECT DATE(criado_em) AS data_criacao, SUM(valor_total) AS valor_total
+        FROM venda
+        WHERE cliente_id = $1
+        GROUP BY DATE(criado_em)
+        ORDER BY DATE(criado_em) DESC
+        LIMIT 10`,
+      [cliente_id],
     );
     res.json(result.rows);
   } catch (err) {
@@ -56,16 +55,15 @@ const vendasUltimosDias = async (req, res) => {
   }
 };
 
-
 // Relatório de vendas com filtro
 const relatorioVendas = async (req, res) => {
   const { cliente_id } = req.user;
   const { dataInicio, dataFim, produto_id, forma_pagamento } = req.query;
 
   try {
-    let query = `
-      SELECT v.id as venda_id, v.data_criacao, v.forma_pagamento, v.valor_total, v.valor_pago, v.troco, v.desconto,
-             vi.produto_id, p.nome as produto_nome, vi.quantidade, vi.valor_unitario, vi.valor_total as valor_item
+   let query = `
+      SELECT v.id as venda_id, v.criado_em AS data_criacao, v.forma_pagamento, v.valor_total, v.valor_pago, v.troco, v.desconto,
+            vi.produto_id, p.nome as produto_nome, vi.quantidade, vi.valor_unitario, vi.valor_total as valor_item
       FROM venda v
       JOIN venda_item vi ON vi.venda_id = v.id
       JOIN produto p ON p.id = vi.produto_id
@@ -76,11 +74,11 @@ const relatorioVendas = async (req, res) => {
     let idx = 2;
 
     if (dataInicio) {
-      query += ` AND v.data_criacao::date >= $${idx++}`;
+      query += ` AND v.criado_em::date >= $${idx++}`;
       params.push(dataInicio);
     }
     if (dataFim) {
-      query += ` AND v.data_criacao::date <= $${idx++}`;
+      query += ` AND v.criado_em::date <= $${idx++}`;
       params.push(dataFim);
     }
     if (produto_id) {
@@ -92,11 +90,10 @@ const relatorioVendas = async (req, res) => {
       params.push(forma_pagamento);
     }
 
-    query += " ORDER BY v.data_criacao DESC";
+    query += " ORDER BY v.criado_em DESC";
 
     const result = await pool.query(query, params);
     res.json(result.rows);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao gerar relatório de vendas." });
@@ -111,7 +108,7 @@ const totalVolumesEstoque = async (req, res) => {
       `SELECT COALESCE(SUM(quantidade),0) AS total_volumes
        FROM estoque
        WHERE cliente_id=$1`,
-      [cliente_id]
+      [cliente_id],
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -133,9 +130,11 @@ const movimentacaoEntradaDiaria = async (req, res) => {
        WHERE cliente_id=$1
          AND DATE(data_entrada) = CURRENT_DATE
        GROUP BY DATE(data_entrada)`,
-      [cliente_id]
+      [cliente_id],
     );
-    res.json(result.rows[0] || { data: null, total_entradas: 0, total_volumes: 0 });
+    res.json(
+      result.rows[0] || { data: null, total_entradas: 0, total_volumes: 0 },
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar movimentação de entradas" });
@@ -148,16 +147,18 @@ const movimentacaoVendaDiaria = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT 
-         DATE(v.data_criacao) AS data,
-         COUNT(*) AS total_vendas,
-         COALESCE(SUM(v.valor_total),0) AS valor_total_vendas
-       FROM venda v
-       WHERE v.cliente_id=$1
-         AND DATE(v.data_criacao) = CURRENT_DATE
-       GROUP BY DATE(v.data_criacao)`,
-      [cliente_id]
+        DATE(v.criado_em) AS data,
+        COUNT(*) AS total_vendas,
+        COALESCE(SUM(v.valor_total),0) AS valor_total_vendas
+      FROM venda v
+      WHERE v.cliente_id=$1
+        AND DATE(v.criado_em) = CURRENT_DATE
+      GROUP BY DATE(v.criado_em)`,
+      [cliente_id],
     );
-    res.json(result.rows[0] || { data: null, total_vendas: 0, valor_total_vendas: 0 });
+    res.json(
+      result.rows[0] || { data: null, total_vendas: 0, valor_total_vendas: 0 },
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar movimentação de vendas" });
@@ -171,5 +172,5 @@ module.exports = {
   movimentacaoVendaDiaria,
   relatorioVendas,
   entradasUltimosDias,
-  vendasUltimosDias
+  vendasUltimosDias,
 };
