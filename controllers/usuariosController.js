@@ -3,26 +3,60 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const registerUser = async (req, res) => {
-  const { nome, login, senha, cargo, nivel_acesso, cliente_id: clienteSelecionado } = req.body;
-
-  // Para superadmin, permitir cliente_id null
-  let cliente_id = clienteSelecionado;
-  if (nivel_acesso !== "superadmin" && !cliente_id) {
-    return res.status(400).json({ error: "É necessário selecionar um cliente." });
-  }
+  const { nome, login, senha, cargo, nivel_acesso, cliente_id } = req.body;
 
   try {
     const hashedPassword = await bcrypt.hash(senha, 10);
+
+    // Se for admin, procura admin existente do cliente
+    if (nivel_acesso === "admin") {
+      const existe = await pool.query(
+        `SELECT id FROM usuario
+         WHERE cliente_id = $1
+         AND nivel_acesso = 'admin'
+         LIMIT 1`,
+        [cliente_id]
+      );
+
+      if (existe.rows.length > 0) {
+        const userId = existe.rows[0].id;
+
+        const update = await pool.query(
+          `UPDATE usuario
+           SET nome = $1,
+               login = $2,
+               senha = $3,
+               cargo = $4,
+               ativo = true
+           WHERE id = $5
+           RETURNING id,nome,login,cargo,nivel_acesso,cliente_id,ativo`,
+          [nome, login, hashedPassword, cargo, userId]
+        );
+
+        return res.status(200).json({
+          tipo: "atualizado",
+          usuario: update.rows[0]
+        });
+      }
+    }
+
+    // cria novo
     const result = await pool.query(
-      `INSERT INTO usuario (nome, login, senha, cargo, nivel_acesso, cliente_id)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, nome, login, cargo, nivel_acesso, cliente_id, ativo`,
+      `INSERT INTO usuario
+      (nome, login, senha, cargo, nivel_acesso, cliente_id)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      RETURNING id,nome,login,cargo,nivel_acesso,cliente_id,ativo`,
       [nome, login, hashedPassword, cargo, nivel_acesso, cliente_id]
     );
 
-    res.status(201).json({ usuario: result.rows[0] });
+    res.status(201).json({
+      tipo: "criado",
+      usuario: result.rows[0]
+    });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erro ao cadastrar usuário' });
+    res.status(500).json({ error: "Erro ao cadastrar usuário" });
   }
 };
 
