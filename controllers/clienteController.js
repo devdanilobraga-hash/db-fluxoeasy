@@ -1,72 +1,74 @@
 const pool = require("../db");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
 
-const uploadDir = path.join(__dirname, "..", "uploads", "logos");
-
-// garante que a pasta existe
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `logo_${req.user.cliente_id}${ext}`);
-  },
+// ─── Cloudinary config ────────────────────────────────────────────────────────
+// Lê as credenciais do .env — nunca coloque os valores direto aqui
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const upload = multer({ storage });
+// ─── Multer storage → Cloudinary ─────────────────────────────────────────────
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req) => ({
+    folder:         "fluxoeasy/logos",
+    public_id:      `logo_${req.user.cliente_id}`,  // sobrescreve sempre a mesma imagem
+    overwrite:      true,
+    allowed_formats: ["jpg", "jpeg", "png", "webp", "svg"],
+    transformation: [{ width: 400, height: 400, crop: "limit" }], // limita tamanho
+  }),
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
 
 // Listar apenas o cliente vinculado ao usuário logado
 const getClientes = async (req, res) => {
   try {
     let result;
     if (req.user.nivel_acesso === "superadmin") {
-      // Atualiza clientes vencidos antes de buscar
       await pool.query(
-        `UPDATE cliente 
-         SET ativo = false 
-         WHERE data_vencimento < CURRENT_DATE`,
+        `UPDATE cliente SET ativo = false WHERE data_vencimento < CURRENT_DATE`
       );
-
       result = await pool.query("SELECT * FROM cliente ORDER BY nome");
       return res.json(result.rows);
-    } else {
-      const cliente_id = req.user.cliente_id;
-      result = await pool.query("SELECT * FROM cliente WHERE id = $1", [
-        cliente_id,
-      ]);
-      if (result.rows.length === 0)
-        return res.status(404).json({ error: "Cliente não encontrado" });
-
-      // verifica vencimento
-      const cliente = result.rows[0];
-      if (new Date(cliente.data_vencimento) < new Date() && cliente.ativo) {
-        await pool.query("UPDATE cliente SET ativo=false WHERE id=$1", [
-          cliente.id,
-        ]);
-        cliente.ativo = false;
-      }
-
-      return res.json(cliente);
     }
+
+    const cliente_id = req.user.cliente_id;
+    result = await pool.query("SELECT * FROM cliente WHERE id = $1", [cliente_id]);
+
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Cliente não encontrado" });
+
+    const cliente = result.rows[0];
+
+    if (new Date(cliente.data_vencimento) < new Date() && cliente.ativo) {
+      await pool.query("UPDATE cliente SET ativo=false WHERE id=$1", [cliente.id]);
+      cliente.ativo = false;
+    }
+
+    return res.json(cliente);
   } catch (err) {
-    console.error(err);
+    console.error("[getClientes]", err);
     res.status(500).json({ error: "Erro ao buscar cliente" });
   }
 };
 
-// Buscar cliente por ID (opcional, mas só permite acessar se for o mesmo vinculado)
+// Buscar cliente por ID
 const getClienteById = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   const { id } = req.params;
 
-  if (parseInt(id) !== cliente_id) {
+  if (parseInt(id) !== cliente_id)
     return res.status(403).json({ error: "Acesso negado a este cliente" });
-  }
 
   try {
     const result = await pool.query("SELECT * FROM cliente WHERE id=$1", [id]);
@@ -74,163 +76,171 @@ const getClienteById = async (req, res) => {
       return res.status(404).json({ error: "Cliente não encontrado" });
     res.json(result.rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error("[getClienteById]", err);
     res.status(500).json({ error: "Erro ao buscar cliente" });
   }
 };
 
-// Atualizar cliente (somente o cliente vinculado)
+// Atualizar cliente
 const updateCliente = async (req, res) => {
   const { id } = req.params;
   const {
-    nome,
-    cnpj_cpf,
-    email,
-    telefone,
-    endereco,
-    ativo,
-    logo_url,
-    data_vencimento,
-    tipo_impressao,
-    largura_bobina,
-    auto_imprimir,
+    nome, cnpj_cpf, email, telefone, endereco,
+    ativo, logo_url, data_vencimento,
+    tipo_impressao, largura_bobina, auto_imprimir,
   } = req.body;
 
   try {
-    const clienteId =
-      req.user.nivel_acesso === "superadmin" ? id : req.user.cliente_id;
-
-    if (
-      req.user.nivel_acesso !== "superadmin" &&
-      parseInt(id) !== req.user.cliente_id
-    ) {
+    if (req.user.nivel_acesso !== "superadmin" && parseInt(id) !== req.user.cliente_id)
       return res.status(403).json({ error: "Acesso negado" });
-    }
 
-    // Primeiro busca o cliente atual
-    const clienteAtual = await pool.query("SELECT * FROM cliente WHERE id=$1", [
-      clienteId,
-    ]);
-    if (clienteAtual.rows.length === 0)
+    const clienteId = req.user.nivel_acesso === "superadmin" ? id : req.user.cliente_id;
+
+    const { rows } = await pool.query("SELECT * FROM cliente WHERE id=$1", [clienteId]);
+    if (rows.length === 0)
       return res.status(404).json({ error: "Cliente não encontrado" });
-    const atual = clienteAtual.rows[0];
+
+    const atual = rows[0];
 
     const result = await pool.query(
       `UPDATE cliente
-       SET nome=$1,
-           cnpj_cpf=$2,
-           email=$3,
-           telefone=$4,
-           endereco=$5,
-           ativo=$6,
-           logo_url=$7,
-           data_vencimento=$8,
-           tipo_impressao=$9,
-largura_bobina=$10,
-auto_imprimir=$11
+       SET nome=$1, cnpj_cpf=$2, email=$3, telefone=$4, endereco=$5,
+           ativo=$6, logo_url=$7, data_vencimento=$8,
+           tipo_impressao=$9, largura_bobina=$10, auto_imprimir=$11
        WHERE id=$12
        RETURNING *`,
       [
-        nome ?? atual.nome,
-        cnpj_cpf ?? atual.cnpj_cpf,
-        email ?? atual.email,
-        telefone ?? atual.telefone,
-        endereco ?? atual.endereco,
-        ativo ?? atual.ativo,
-        logo_url ?? atual.logo_url,
+        nome            ?? atual.nome,
+        cnpj_cpf        ?? atual.cnpj_cpf,
+        email           ?? atual.email,
+        telefone        ?? atual.telefone,
+        endereco        ?? atual.endereco,
+        ativo           ?? atual.ativo,
+        logo_url        !== undefined ? logo_url : atual.logo_url, // aceita null explícito
         data_vencimento ?? atual.data_vencimento,
-        tipo_impressao ?? atual.tipo_impressao,
-        largura_bobina ?? atual.largura_bobina,
-        auto_imprimir ?? atual.auto_imprimir,
+        tipo_impressao  ?? atual.tipo_impressao,
+        largura_bobina  ?? atual.largura_bobina,
+        auto_imprimir   ?? atual.auto_imprimir,
         clienteId,
-      ],
+      ]
     );
 
     res.json(result.rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error("[updateCliente]", err);
     res.status(500).json({ error: "Erro ao atualizar cliente" });
   }
 };
 
-// rota para upload de logo
+// Upload de logo → Cloudinary
 const uploadLogo = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "Nenhum arquivo recebido" });
+  }
+
   const cliente_id = req.user.cliente_id;
-  const filePath = `/uploads/logos/${req.file.filename}`;
+
+  // req.file.path é a URL pública do Cloudinary (multer-storage-cloudinary já seta isso)
+  const logo_url = req.file.path;
 
   try {
     const result = await pool.query(
       `UPDATE cliente SET logo_url=$1 WHERE id=$2 RETURNING *`,
-      [filePath, cliente_id],
+      [logo_url, cliente_id]
     );
-    res.json({ logo_url: filePath, cliente: result.rows[0] });
+
+    res.json({ logo_url, cliente: result.rows[0] });
   } catch (err) {
-    console.error(err);
+    console.error("[uploadLogo]", err);
     res.status(500).json({ error: "Erro ao salvar logo" });
   }
 };
 
-const getAllClientes = async (req, res) => {
-  if (req.user.nivel_acesso !== "superadmin") {
-    return res.status(403).json({ error: "Acesso negado" });
+// Remover logo → deleta do Cloudinary também
+const removeLogo = async (req, res) => {
+  const cliente_id = req.user.nivel_acesso === "superadmin"
+    ? req.params.id
+    : req.user.cliente_id;
+
+  try {
+    // Busca a logo atual para deletar do Cloudinary
+    const { rows } = await pool.query("SELECT logo_url FROM cliente WHERE id=$1", [cliente_id]);
+    const logo_url = rows[0]?.logo_url;
+
+    if (logo_url) {
+      // Extrai o public_id da URL do Cloudinary para poder deletar
+      // URL exemplo: https://res.cloudinary.com/cloud/image/upload/v123/fluxoeasy/logos/logo_5.png
+      const publicId = logo_url
+        .split("/upload/")[1]
+        .replace(/^v\d+\//, "")   // remove version prefix
+        .replace(/\.[^.]+$/, ""); // remove extensão
+
+      await cloudinary.uploader.destroy(publicId);
+    }
+
+    const result = await pool.query(
+      `UPDATE cliente SET logo_url=NULL WHERE id=$1 RETURNING *`,
+      [cliente_id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("[removeLogo]", err);
+    res.status(500).json({ error: "Erro ao remover logo" });
   }
+};
+
+const getAllClientes = async (req, res) => {
+  if (req.user.nivel_acesso !== "superadmin")
+    return res.status(403).json({ error: "Acesso negado" });
 
   try {
     const result = await pool.query(`
-      SELECT id, nome, cnpj_cpf, email, telefone, endereco, ativo, data_pagamento, data_vencimento, tipo_impressao, largura_bobina, auto_imprimir
-      FROM cliente
-      ORDER BY nome
+      SELECT id, nome, cnpj_cpf, email, telefone, endereco,
+             ativo, data_pagamento, data_vencimento,
+             tipo_impressao, largura_bobina, auto_imprimir
+      FROM cliente ORDER BY nome
     `);
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error("[getAllClientes]", err);
     res.status(500).json({ error: "Erro ao listar clientes" });
   }
 };
 
 const createCliente = async (req, res) => {
-  if (req.user.nivel_acesso !== "superadmin") {
+  if (req.user.nivel_acesso !== "superadmin")
     return res.status(403).json({ error: "Acesso negado" });
-  }
 
   const { nome, cnpj_cpf, email, telefone, endereco } = req.body;
-
-  // data de vencimento = hoje + 14 dias
   const dataVencimento = new Date();
   dataVencimento.setDate(dataVencimento.getDate() + 14);
 
   try {
     const result = await pool.query(
-      `INSERT INTO cliente 
-        (nome, cnpj_cpf, email, telefone, endereco, ativo, data_pagamento, data_vencimento)
-       VALUES ($1, $2, $3, $4, $5, true, NULL, $6)
-       RETURNING *`,
-      [nome, cnpj_cpf, email, telefone, endereco, dataVencimento],
+      `INSERT INTO cliente (nome, cnpj_cpf, email, telefone, endereco, ativo, data_pagamento, data_vencimento)
+       VALUES ($1, $2, $3, $4, $5, true, NULL, $6) RETURNING *`,
+      [nome, cnpj_cpf, email, telefone, endereco, dataVencimento]
     );
-
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error("[createCliente]", err);
     res.status(500).json({ error: "Erro ao criar cliente" });
   }
 };
 
 const getClienteByCpfCnpj = async (req, res) => {
   const { cpf_cnpj } = req.params;
-
   try {
     const result = await pool.query(
-      `SELECT * FROM cliente WHERE REPLACE(cnpj_cpf, '.', '') = $1 OR REPLACE(cnpj_cpf, '/', '') = $1 OR REPLACE(cnpj_cpf, '-', '') = $1`,
-      [cpf_cnpj],
+      `SELECT * FROM cliente
+       WHERE REPLACE(REPLACE(REPLACE(cnpj_cpf, '.', ''), '/', ''), '-', '') = $1`,
+      [cpf_cnpj]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json(null);
-    }
-
-    return res.json(result.rows[0]);
+    if (result.rows.length === 0) return res.status(404).json(null);
+    res.json(result.rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error("[getClienteByCpfCnpj]", err);
     res.status(500).json({ error: "Erro ao buscar cliente por CPF/CNPJ" });
   }
 };
@@ -240,6 +250,7 @@ module.exports = {
   getClienteById,
   updateCliente,
   uploadLogo,
+  removeLogo,
   upload,
   getAllClientes,
   createCliente,
