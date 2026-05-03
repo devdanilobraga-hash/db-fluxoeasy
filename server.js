@@ -48,6 +48,7 @@ app.use("/api/entrada", auth, checkClienteAtivo, getPlano, require("./routes/ent
 app.use("/api/estoque", auth, checkClienteAtivo, getPlano, require("./routes/estoque"));
 app.use("/api/venda", auth, checkClienteAtivo, getPlano, require("./routes/venda"));
 app.use("/api/dashboard", auth, checkClienteAtivo, getPlano, require("./routes/dashboard"));
+app.use("/api/calendario", auth, checkClienteAtivo, getPlano, require("./routes/calendario"));
 app.use("/api/email", require("./routes/email"));
 
 
