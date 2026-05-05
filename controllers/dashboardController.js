@@ -165,6 +165,126 @@ const movimentacaoVendaDiaria = async (req, res) => {
   }
 };
 
+// Faturamento diário unificado (vendas + aluguéis pagos hoje)
+const faturamentoDiario = async (req, res) => {
+  const { cliente_id } = req.user;
+  try {
+    const result = await pool.query(
+      `SELECT
+         COALESCE(SUM(v.valor_total), 0)                                   AS receita_vendas,
+         COALESCE(
+           (SELECT SUM(ap.valor)
+            FROM aluguel_pagamento ap
+            JOIN aluguel a ON a.id = ap.aluguel_id
+            WHERE a.cliente_id = $1
+              AND DATE(ap.created_at AT TIME ZONE 'America/Sao_Paulo') = CURRENT_DATE
+           ), 0)                                                            AS receita_alugueis
+       FROM venda v
+       WHERE v.cliente_id = $1
+         AND DATE(v.criado_em AT TIME ZONE 'America/Sao_Paulo') = CURRENT_DATE`,
+      [cliente_id]
+    );
+
+    const row = result.rows[0];
+    const receita_vendas   = Number(row.receita_vendas);
+    const receita_alugueis = Number(row.receita_alugueis);
+
+    res.json({
+      receita_vendas,
+      receita_alugueis,
+      total: Number((receita_vendas + receita_alugueis).toFixed(2)),
+    });
+  } catch (err) {
+    console.error("[faturamentoDiario]", err);
+    res.status(500).json({ error: "Erro ao calcular faturamento diário." });
+  }
+};
+
+// Aluguéis ativos hoje e receita do dia
+const aluguelDiario = async (req, res) => {
+  const { cliente_id } = req.user;
+  try {
+    const result = await pool.query(
+      `SELECT
+         COUNT(*)                                    AS total_alugueis,
+         COALESCE(SUM(ap.valor_pago_hoje), 0)        AS valor_recebido_hoje
+       FROM aluguel a
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(ap2.valor), 0) AS valor_pago_hoje
+         FROM aluguel_pagamento ap2
+         WHERE ap2.aluguel_id = a.id
+           AND DATE(ap2.created_at AT TIME ZONE 'America/Sao_Paulo') = CURRENT_DATE
+       ) ap ON true
+       WHERE a.cliente_id = $1
+         AND a.status NOT IN ('cancelado', 'devolvido')
+         AND a.data_retirada <= CURRENT_DATE
+         AND a.data_devolucao >= CURRENT_DATE`,
+      [cliente_id]
+    );
+
+    const row = result.rows[0];
+    res.json({
+      total_alugueis:       Number(row.total_alugueis),
+      valor_recebido_hoje:  Number(row.valor_recebido_hoje),
+    });
+  } catch (err) {
+    console.error("[aluguelDiario]", err);
+    res.status(500).json({ error: "Erro ao buscar dados de aluguel diário." });
+  }
+};
+
+// Gráfico: vendas × aluguéis nos últimos 10 dias
+const receitaUltimosDias = async (req, res) => {
+  const { cliente_id } = req.user;
+  try {
+    // Vendas por dia
+    const vendasRes = await pool.query(
+      `SELECT DATE(criado_em AT TIME ZONE 'America/Sao_Paulo') AS data,
+              COALESCE(SUM(valor_total), 0) AS valor
+       FROM venda
+       WHERE cliente_id = $1
+         AND criado_em >= CURRENT_DATE - INTERVAL '9 days'
+       GROUP BY DATE(criado_em AT TIME ZONE 'America/Sao_Paulo')
+       ORDER BY data ASC`,
+      [cliente_id]
+    );
+
+    // Pagamentos de aluguel por dia
+    const alugueisRes = await pool.query(
+      `SELECT DATE(ap.created_at AT TIME ZONE 'America/Sao_Paulo') AS data,
+              COALESCE(SUM(ap.valor), 0) AS valor
+       FROM aluguel_pagamento ap
+       JOIN aluguel a ON a.id = ap.aluguel_id
+       WHERE a.cliente_id = $1
+         AND ap.created_at >= CURRENT_DATE - INTERVAL '9 days'
+       GROUP BY DATE(ap.created_at AT TIME ZONE 'America/Sao_Paulo')
+       ORDER BY data ASC`,
+      [cliente_id]
+    );
+
+    // Mescla os dois por data
+    const mapaVendas   = Object.fromEntries(vendasRes.rows.map(r   => [r.data.toISOString().slice(0, 10), Number(r.valor)]));
+    const mapaAlugueis = Object.fromEntries(alugueisRes.rows.map(r => [r.data.toISOString().slice(0, 10), Number(r.valor)]));
+
+    const todasDatas = [...new Set([
+      ...Object.keys(mapaVendas),
+      ...Object.keys(mapaAlugueis),
+    ])].sort();
+
+    const dados = todasDatas.map(data => ({
+      data,
+      vendas:   mapaVendas[data]   ?? 0,
+      alugueis: mapaAlugueis[data] ?? 0,
+      total:    Number(((mapaVendas[data] ?? 0) + (mapaAlugueis[data] ?? 0)).toFixed(2)),
+    }));
+
+    res.json(dados);
+  } catch (err) {
+    console.error("[receitaUltimosDias]", err);
+    res.status(500).json({ error: "Erro ao buscar receita dos últimos dias." });
+  }
+};
+
 module.exports = {
   totalProdutos,
   totalVolumesEstoque,
@@ -173,4 +293,7 @@ module.exports = {
   relatorioVendas,
   entradasUltimosDias,
   vendasUltimosDias,
+  faturamentoDiario,
+  aluguelDiario,
+  receitaUltimosDias,
 };

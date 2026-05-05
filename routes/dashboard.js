@@ -8,7 +8,10 @@ const {
   movimentacaoVendaDiaria,
   relatorioVendas,
   entradasUltimosDias,
-  vendasUltimosDias
+  vendasUltimosDias,
+  faturamentoDiario,
+  aluguelDiario,
+  receitaUltimosDias
 } = require('../controllers/dashboardController');
 
 router.use(auth);
@@ -20,6 +23,9 @@ router.get('/venda-diaria', auth, movimentacaoVendaDiaria);
 router.get('/relatorio-vendas', auth, relatorioVendas);
 router.get('/entradas-ultimos-dias', entradasUltimosDias);
 router.get('/vendas-ultimos-dias', vendasUltimosDias);
+router.get("/faturamento-diario",   auth, faturamentoDiario);
+router.get("/aluguel-diario",       auth, aluguelDiario);
+router.get("/receita-ultimos-dias", auth, receitaUltimosDias);
 
 
 module.exports = router;
