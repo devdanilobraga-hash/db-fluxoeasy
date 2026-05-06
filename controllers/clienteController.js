@@ -7,7 +7,7 @@ const cloudinary = require("cloudinary").v2;
 // Lê as credenciais do .env — nunca coloque os valores direto aqui
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
@@ -15,9 +15,9 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req) => ({
-    folder:         "fluxoeasy/logos",
-    public_id:      `logo_${req.user.cliente_id}`,  // sobrescreve sempre a mesma imagem
-    overwrite:      true,
+    folder: "fluxoeasy/logos",
+    public_id: `logo_${req.user.cliente_id}`, // sobrescreve sempre a mesma imagem
+    overwrite: true,
     allowed_formats: ["jpg", "jpeg", "png", "webp", "svg"],
     transformation: [{ width: 400, height: 400, crop: "limit" }], // limita tamanho
   }),
@@ -36,14 +36,16 @@ const getClientes = async (req, res) => {
     let result;
     if (req.user.nivel_acesso === "superadmin") {
       await pool.query(
-        `UPDATE cliente SET ativo = false WHERE data_vencimento < CURRENT_DATE`
+        `UPDATE cliente SET ativo = false WHERE data_vencimento < CURRENT_DATE`,
       );
       result = await pool.query("SELECT * FROM cliente ORDER BY nome");
       return res.json(result.rows);
     }
 
     const cliente_id = req.user.cliente_id;
-    result = await pool.query("SELECT * FROM cliente WHERE id = $1", [cliente_id]);
+    result = await pool.query("SELECT * FROM cliente WHERE id = $1", [
+      cliente_id,
+    ]);
 
     if (result.rows.length === 0)
       return res.status(404).json({ error: "Cliente não encontrado" });
@@ -51,7 +53,9 @@ const getClientes = async (req, res) => {
     const cliente = result.rows[0];
 
     if (new Date(cliente.data_vencimento) < new Date() && cliente.ativo) {
-      await pool.query("UPDATE cliente SET ativo=false WHERE id=$1", [cliente.id]);
+      await pool.query("UPDATE cliente SET ativo=false WHERE id=$1", [
+        cliente.id,
+      ]);
       cliente.ativo = false;
     }
 
@@ -82,21 +86,37 @@ const getClienteById = async (req, res) => {
 };
 
 // Atualizar cliente
+// Substitua o updateCliente pelo de baixo:
+
 const updateCliente = async (req, res) => {
   const { id } = req.params;
   const {
-    nome, cnpj_cpf, email, telefone, endereco,
-    ativo, logo_url, data_vencimento,
-    tipo_impressao, largura_bobina, auto_imprimir,
+    nome,
+    cnpj_cpf,
+    email,
+    telefone,
+    endereco,
+    ativo,
+    logo_url,
+    data_vencimento,
+    tipo_impressao,
+    largura_bobina,
+    auto_imprimir,
   } = req.body;
 
   try {
-    if (req.user.nivel_acesso !== "superadmin" && parseInt(id) !== req.user.cliente_id)
+    if (
+      req.user.nivel_acesso !== "superadmin" &&
+      parseInt(id) !== req.user.cliente_id
+    )
       return res.status(403).json({ error: "Acesso negado" });
 
-    const clienteId = req.user.nivel_acesso === "superadmin" ? id : req.user.cliente_id;
+    const clienteId =
+      req.user.nivel_acesso === "superadmin" ? id : req.user.cliente_id;
 
-    const { rows } = await pool.query("SELECT * FROM cliente WHERE id=$1", [clienteId]);
+    const { rows } = await pool.query("SELECT * FROM cliente WHERE id=$1", [
+      clienteId,
+    ]);
     if (rows.length === 0)
       return res.status(404).json({ error: "Cliente não encontrado" });
 
@@ -110,25 +130,51 @@ const updateCliente = async (req, res) => {
        WHERE id=$12
        RETURNING *`,
       [
-        nome            ?? atual.nome,
-        cnpj_cpf        ?? atual.cnpj_cpf,
-        email           ?? atual.email,
-        telefone        ?? atual.telefone,
-        endereco        ?? atual.endereco,
-        ativo           ?? atual.ativo,
-        logo_url        !== undefined ? logo_url : atual.logo_url, // aceita null explícito
+        nome ?? atual.nome,
+        cnpj_cpf ?? atual.cnpj_cpf,
+        email ?? atual.email,
+        telefone ?? atual.telefone,
+        endereco ?? atual.endereco,
+        ativo ?? atual.ativo,
+        logo_url !== undefined ? logo_url : atual.logo_url,
         data_vencimento ?? atual.data_vencimento,
-        tipo_impressao  ?? atual.tipo_impressao,
-        largura_bobina  ?? atual.largura_bobina,
-        auto_imprimir   ?? atual.auto_imprimir,
+        tipo_impressao ?? atual.tipo_impressao,
+        largura_bobina ?? atual.largura_bobina,
+        auto_imprimir ?? atual.auto_imprimir,
         clienteId,
-      ]
+      ],
     );
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error("[updateCliente]", err);
     res.status(500).json({ error: "Erro ao atualizar cliente" });
+  }
+};
+
+// Nova função — apenas superadmin
+const updateDadosInternos = async (req, res) => {
+  if (req.user.nivel_acesso !== "superadmin")
+    return res.status(403).json({ error: "Acesso negado" });
+
+  const { id } = req.params;
+  const { nome_proprietario, contato_cliente } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE cliente
+       SET nome_proprietario=$1, contato_cliente=$2
+       WHERE id=$3
+       RETURNING *`,
+      [nome_proprietario ?? null, contato_cliente ?? null, id],
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Cliente não encontrado" });
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("[updateDadosInternos]", err);
+    res.status(500).json({ error: "Erro ao salvar dados internos" });
   }
 };
 
@@ -146,7 +192,7 @@ const uploadLogo = async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE cliente SET logo_url=$1 WHERE id=$2 RETURNING *`,
-      [logo_url, cliente_id]
+      [logo_url, cliente_id],
     );
 
     res.json({ logo_url, cliente: result.rows[0] });
@@ -158,13 +204,17 @@ const uploadLogo = async (req, res) => {
 
 // Remover logo → deleta do Cloudinary também
 const removeLogo = async (req, res) => {
-  const cliente_id = req.user.nivel_acesso === "superadmin"
-    ? req.params.id
-    : req.user.cliente_id;
+  const cliente_id =
+    req.user.nivel_acesso === "superadmin"
+      ? req.params.id
+      : req.user.cliente_id;
 
   try {
     // Busca a logo atual para deletar do Cloudinary
-    const { rows } = await pool.query("SELECT logo_url FROM cliente WHERE id=$1", [cliente_id]);
+    const { rows } = await pool.query(
+      "SELECT logo_url FROM cliente WHERE id=$1",
+      [cliente_id],
+    );
     const logo_url = rows[0]?.logo_url;
 
     if (logo_url) {
@@ -172,7 +222,7 @@ const removeLogo = async (req, res) => {
       // URL exemplo: https://res.cloudinary.com/cloud/image/upload/v123/fluxoeasy/logos/logo_5.png
       const publicId = logo_url
         .split("/upload/")[1]
-        .replace(/^v\d+\//, "")   // remove version prefix
+        .replace(/^v\d+\//, "") // remove version prefix
         .replace(/\.[^.]+$/, ""); // remove extensão
 
       await cloudinary.uploader.destroy(publicId);
@@ -180,7 +230,7 @@ const removeLogo = async (req, res) => {
 
     const result = await pool.query(
       `UPDATE cliente SET logo_url=NULL WHERE id=$1 RETURNING *`,
-      [cliente_id]
+      [cliente_id],
     );
 
     res.json(result.rows[0]);
@@ -198,7 +248,8 @@ const getAllClientes = async (req, res) => {
     const result = await pool.query(`
       SELECT id, nome, cnpj_cpf, email, telefone, endereco,
              ativo, data_pagamento, data_vencimento,
-             tipo_impressao, largura_bobina, auto_imprimir
+             tipo_impressao, largura_bobina, auto_imprimir,
+             nome_proprietario, contato_cliente
       FROM cliente ORDER BY nome
     `);
     res.json(result.rows);
@@ -220,7 +271,7 @@ const createCliente = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO cliente (nome, cnpj_cpf, email, telefone, endereco, ativo, data_pagamento, data_vencimento)
        VALUES ($1, $2, $3, $4, $5, true, NULL, $6) RETURNING *`,
-      [nome, cnpj_cpf, email, telefone, endereco, dataVencimento]
+      [nome, cnpj_cpf, email, telefone, endereco, dataVencimento],
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -235,7 +286,7 @@ const getClienteByCpfCnpj = async (req, res) => {
     const result = await pool.query(
       `SELECT * FROM cliente
        WHERE REPLACE(REPLACE(REPLACE(cnpj_cpf, '.', ''), '/', ''), '-', '') = $1`,
-      [cpf_cnpj]
+      [cpf_cnpj],
     );
     if (result.rows.length === 0) return res.status(404).json(null);
     res.json(result.rows[0]);
@@ -255,4 +306,5 @@ module.exports = {
   getAllClientes,
   createCliente,
   getClienteByCpfCnpj,
+  updateDadosInternos,
 };
