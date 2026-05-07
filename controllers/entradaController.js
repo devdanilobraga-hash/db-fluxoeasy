@@ -1,5 +1,6 @@
 const pool = require('../db');
-const { addEstoque, removeEstoque } = require('./estoqueController');
+const { addEstoque, removeEstoque, updateEstoqueByEntrada } = require('./estoqueController');
+
 
 // ─── Criar entrada ────────────────────────────────────────────────────────────
 const createEntrada = async (req, res) => {
@@ -139,24 +140,23 @@ const getEntradaById = async (req, res) => {
 };
 
 // ─── Atualizar entrada ────────────────────────────────────────────────────────
+
 const updateEntrada = async (req, res) => {
   const { id } = req.params;
   const { produto_id, quantidade, preco_custo, data_validade, observacao } = req.body;
   const cliente_id = req.user.cliente_id;
 
   try {
-    // Recuperar entrada antiga
-    const oldEntrada = await pool.query(
-      'SELECT * FROM entrada WHERE id=$1 AND cliente_id=$2',
+    const oldResult = await pool.query(
+      "SELECT * FROM entrada WHERE id=$1 AND cliente_id=$2",
       [id, cliente_id]
     );
 
-    if (oldEntrada.rows.length === 0)
-      return res.status(404).json({ error: 'Entrada não encontrada' });
+    if (oldResult.rows.length === 0)
+      return res.status(404).json({ error: "Entrada não encontrada" });
 
-    const old = oldEntrada.rows[0];
+    const old = oldResult.rows[0];
 
-    // Valida tipo do produto destino
     const produtoCheck = await pool.query(
       "SELECT tipo FROM produto WHERE id=$1 AND cliente_id=$2",
       [produto_id, cliente_id]
@@ -165,13 +165,10 @@ const updateEntrada = async (req, res) => {
     if (produtoCheck.rows.length === 0)
       return res.status(404).json({ error: "Produto não encontrado." });
 
-    if (produtoCheck.rows[0].tipo === "servico") {
-      return res.status(400).json({
-        error: "Serviços não movimentam estoque.",
-      });
-    }
+    if (produtoCheck.rows[0].tipo === "servico")
+      return res.status(400).json({ error: "Serviços não movimentam estoque." });
 
-    // Atualizar entrada
+    // Salva a entrada atualizada
     const result = await pool.query(
       `UPDATE entrada
        SET produto_id=$1, quantidade=$2, preco_custo=$3, data_validade=$4, observacao=$5
@@ -180,14 +177,24 @@ const updateEntrada = async (req, res) => {
       [produto_id, quantidade, preco_custo, data_validade || null, observacao || null, id, cliente_id]
     );
 
-    // Ajustar estoque: remove a antiga e adiciona a nova
-    await removeEstoque(cliente_id, old.produto_id, old.quantidade);
-    await addEstoque(result.rows[0]);
+    const novaEntrada = result.rows[0];
 
-    res.json(result.rows[0]);
+    // Ajusta estoque com delta seguro — sem remove+add que zeraria o lote
+    await updateEstoqueByEntrada(
+      Number(id),
+      cliente_id,
+      old.produto_id,
+      produto_id,
+      old.quantidade,
+      quantidade,
+      preco_custo,
+      data_validade || null
+    );
+
+    return res.json(novaEntrada);
   } catch (err) {
-    console.error('[updateEntrada]', err);
-    res.status(500).json({ error: 'Erro ao atualizar entrada' });
+    console.error("[updateEntrada]", err);
+    return res.status(500).json({ error: err.message || "Erro ao atualizar entrada" });
   }
 };
 

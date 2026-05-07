@@ -157,6 +157,89 @@ const getEstoque = async (req, res) => {
 };
 
 
+// Atualiza estoque quando uma entrada é editada
+// Recalcula a diferença entre quantidade antiga e nova no lote vinculado
+const updateEstoqueByEntrada = async (entradaId, clienteId, produtoIdAntigo, produtoIdNovo, qtdAntiga, qtdNova, preco_custo, data_validade) => {
+  try {
+    const produtoMudou = String(produtoIdAntigo) !== String(produtoIdNovo);
 
+    if (produtoMudou) {
+      // Remove do produto antigo (FIFO normal)
+      await removeEstoque(clienteId, produtoIdAntigo, Number(qtdAntiga));
 
-module.exports = { addEstoque, removeEstoque, getEstoque, putEstoque };
+      // Adiciona no novo produto — mas precisa forçar a inserção
+      // ignorando a checagem de entrada_id duplicada
+      const existing = await pool.query(
+        data_validade
+          ? `SELECT * FROM estoque WHERE produto_id=$1 AND cliente_id=$2 AND preco_custo=$3 AND data_validade=$4 LIMIT 1`
+          : `SELECT * FROM estoque WHERE produto_id=$1 AND cliente_id=$2 AND preco_custo=$3 AND data_validade IS NULL LIMIT 1`,
+        data_validade
+          ? [produtoIdNovo, clienteId, preco_custo, data_validade]
+          : [produtoIdNovo, clienteId, preco_custo]
+      );
+
+      if (existing.rows.length > 0) {
+        await pool.query(
+          `UPDATE estoque SET quantidade = quantidade + $1, data_atualizacao = CURRENT_TIMESTAMP WHERE id=$2`,
+          [qtdNova, existing.rows[0].id]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO estoque (produto_id, cliente_id, quantidade, data_validade, preco_custo, valor_venda, entrada_id, data_atualizacao)
+           VALUES ($1,$2,$3,$4,$5,NULL,$6,CURRENT_TIMESTAMP)`,
+          [produtoIdNovo, clienteId, qtdNova, data_validade || null, preco_custo, entradaId]
+        );
+      }
+
+    } else {
+      // Mesmo produto — ajusta apenas a diferença no lote vinculado à entrada
+      const delta = Number(qtdNova) - Number(qtdAntiga);
+      if (delta === 0) return; // nada mudou
+
+      // Busca o lote vinculado a esta entrada
+      const loteResult = await pool.query(
+        `SELECT * FROM estoque WHERE entrada_id=$1 LIMIT 1`,
+        [entradaId]
+      );
+
+      if (loteResult.rows.length > 0) {
+        const lote = loteResult.rows[0];
+        const novaQtd = Number(lote.quantidade) + delta;
+
+        if (novaQtd < 0) {
+          throw new Error(`Estoque insuficiente. Disponível no lote: ${lote.quantidade}, tentando reduzir: ${Math.abs(delta)}.`);
+        }
+
+        await pool.query(
+          `UPDATE estoque SET quantidade=$1, data_atualizacao=CURRENT_TIMESTAMP WHERE id=$2`,
+          [novaQtd, lote.id]
+        );
+      } else {
+        // Lote sem entrada_id vinculada — fallback: busca por produto/preço/validade
+        const fallback = await pool.query(
+          data_validade
+            ? `SELECT * FROM estoque WHERE produto_id=$1 AND cliente_id=$2 AND preco_custo=$3 AND data_validade=$4 ORDER BY id ASC LIMIT 1`
+            : `SELECT * FROM estoque WHERE produto_id=$1 AND cliente_id=$2 AND preco_custo=$3 AND data_validade IS NULL ORDER BY id ASC LIMIT 1`,
+          data_validade
+            ? [produtoIdNovo, clienteId, preco_custo, data_validade]
+            : [produtoIdNovo, clienteId, preco_custo]
+        );
+
+        if (fallback.rows.length > 0) {
+          const novaQtd = Number(fallback.rows[0].quantidade) + delta;
+          if (novaQtd < 0) throw new Error("Estoque insuficiente.");
+          await pool.query(
+            `UPDATE estoque SET quantidade=$1, data_atualizacao=CURRENT_TIMESTAMP WHERE id=$2`,
+            [novaQtd, fallback.rows[0].id]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[updateEstoqueByEntrada]", err);
+    throw err;
+  }
+};
+
+// Adicione no module.exports:
+module.exports = { addEstoque, removeEstoque, getEstoque, putEstoque, updateEstoqueByEntrada };
