@@ -241,21 +241,26 @@ const removeLogo = async (req, res) => {
 };
 
 const getAllClientes = async (req, res) => {
-  if (req.user.nivel_acesso !== "superadmin")
-    return res.status(403).json({ error: "Acesso negado" });
+  if (req.user.nivel_acesso !== 'superadmin')
+    return res.status(403).json({ error: 'Acesso negado' });
 
   try {
     const result = await pool.query(`
-      SELECT id, nome, cnpj_cpf, email, telefone, endereco,
-             ativo, data_pagamento, data_vencimento,
-             tipo_impressao, largura_bobina, auto_imprimir,
-             nome_proprietario, contato_cliente
-      FROM cliente ORDER BY nome
+      SELECT
+        c.*,
+        EXISTS (
+          SELECT 1 FROM usuario u
+          WHERE u.cliente_id = c.id
+            AND u.ativo = true
+            AND u.ultimo_heartbeat > NOW() - INTERVAL '2 minutes'
+        ) AS tem_usuario_online
+      FROM cliente c
+      ORDER BY c.nome
     `);
     res.json(result.rows);
   } catch (err) {
-    console.error("[getAllClientes]", err);
-    res.status(500).json({ error: "Erro ao listar clientes" });
+    console.error('[getAllClientes]', err);
+    res.status(500).json({ error: 'Erro ao listar clientes' });
   }
 };
 

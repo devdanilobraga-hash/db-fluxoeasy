@@ -231,5 +231,20 @@ const updateUser = async (req, res) => {
   }
 };
 
+// controllers/usuarioController.js
+const heartbeat = async (req, res) => {
+  const { id } = req.user; // vem do JWT
+  try {
+    await pool.query(
+      'UPDATE usuario SET ultimo_heartbeat = NOW() WHERE id = $1',
+      [id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao registrar heartbeat' });
+  }
+};
 
-module.exports = { registerUser, loginUser, getUsers, updateUser, ativarUser, desativarUser };
+
+module.exports = { registerUser, loginUser, getUsers, updateUser, ativarUser, desativarUser, heartbeat };

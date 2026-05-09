@@ -8,6 +8,6 @@ router.post('/login', loginUser);         // login
 router.get('/', auth, getUsers);          // lista usuários (protegido)
 router.put('/:id/desativar', auth, desativarUser); // ✅ desativar
 router.put('/:id/ativar', auth, ativarUser);
-router.put('/:id', auth, updateUser); 
+router.put('/:id', auth, updateUser);
 
 module.exports = router;
