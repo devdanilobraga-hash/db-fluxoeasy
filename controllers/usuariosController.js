@@ -2,13 +2,19 @@ const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+// ─── IMPORTANTE: o campo `login` deve ter UNIQUE constraint no banco ──────────
+// Se ainda não tiver, rode:
+//   ALTER TABLE usuario ADD CONSTRAINT usuario_login_key UNIQUE (login);
+// Isso garante que mesmo que o frontend envie um login duplicado, o banco rejeita.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const registerUser = async (req, res) => {
   const { nome, login, senha, cargo, nivel_acesso, cliente_id } = req.body;
 
   try {
     const hashedPassword = await bcrypt.hash(senha, 10);
 
-    // Se for admin, procura admin existente do cliente
+    // Se for admin, procura admin existente do cliente e atualiza em vez de criar
     if (nivel_acesso === "admin") {
       const existe = await pool.query(
         `SELECT id FROM usuario
@@ -29,39 +35,43 @@ const registerUser = async (req, res) => {
                cargo = $4,
                ativo = true
            WHERE id = $5
-           RETURNING id,nome,login,cargo,nivel_acesso,cliente_id,ativo`,
+           RETURNING id, nome, login, cargo, nivel_acesso, cliente_id, ativo`,
           [nome, login, hashedPassword, cargo, userId]
         );
 
         return res.status(200).json({
           tipo: "atualizado",
-          usuario: update.rows[0]
+          usuario: update.rows[0],
         });
       }
     }
 
-    // cria novo
+    // Cria novo usuário
     const result = await pool.query(
       `INSERT INTO usuario
-      (nome, login, senha, cargo, nivel_acesso, cliente_id)
-      VALUES ($1,$2,$3,$4,$5,$6)
-      RETURNING id,nome,login,cargo,nivel_acesso,cliente_id,ativo`,
+         (nome, login, senha, cargo, nivel_acesso, cliente_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, nome, login, cargo, nivel_acesso, cliente_id, ativo`,
       [nome, login, hashedPassword, cargo, nivel_acesso, cliente_id]
     );
 
     res.status(201).json({
       tipo: "criado",
-      usuario: result.rows[0]
+      usuario: result.rows[0],
     });
 
   } catch (err) {
-    console.error(err);
+    // Colisão de login único (código 23505 = unique_violation no Postgres)
+    if (err.code === "23505" && err.constraint?.includes("login")) {
+      return res.status(409).json({
+        error: "Este login já está em uso. O sistema gera o login com base no ID do cliente, então isso não deveria ocorrer — verifique se há duplicidade de cliente_id.",
+      });
+    }
+    console.error("[registerUser]", err);
     res.status(500).json({ error: "Erro ao cadastrar usuário" });
   }
 };
 
-
-// Desativar usuário (não exclui mais)
 const desativarUser = async (req, res) => {
   const { id } = req.params;
   try {
@@ -69,9 +79,8 @@ const desativarUser = async (req, res) => {
       'UPDATE usuario SET ativo = false WHERE id = $1 RETURNING id, nome, login, cargo, nivel_acesso, cliente_id, ativo',
       [id]
     );
-    if (result.rows.length === 0) {
+    if (result.rows.length === 0)
       return res.status(404).json({ error: "Usuário não encontrado" });
-    }
     res.json({ message: "Usuário desativado com sucesso", usuario: result.rows[0] });
   } catch (err) {
     console.error(err);
@@ -79,7 +88,6 @@ const desativarUser = async (req, res) => {
   }
 };
 
-// Ativar usuário
 const ativarUser = async (req, res) => {
   const { id } = req.params;
   try {
@@ -87,9 +95,8 @@ const ativarUser = async (req, res) => {
       'UPDATE usuario SET ativo = true WHERE id = $1 RETURNING id, nome, login, cargo, nivel_acesso, cliente_id, ativo',
       [id]
     );
-    if (result.rows.length === 0) {
+    if (result.rows.length === 0)
       return res.status(404).json({ error: "Usuário não encontrado" });
-    }
     res.json({ message: "Usuário ativado com sucesso", usuario: result.rows[0] });
   } catch (err) {
     console.error(err);
@@ -113,44 +120,30 @@ const loginUser = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Bloqueia usuário inativo
-    if (!user.ativo) {
+    if (!user.ativo)
       return res.status(403).json({ error: 'Usuário inativo. Contate o administrador.' });
-    }
 
-    // Verifica se o cliente existe e se está vencido
     if (user.cliente_id && user.cliente_ativo) {
       const dataVencimento = new Date(user.data_vencimento);
-      const hoje = new Date();
-
-      // Se a data de vencimento for anterior à data atual
-      if (dataVencimento < hoje) {
-        // Atualiza o cliente para inativo no banco
+      if (dataVencimento < new Date()) {
         await pool.query('UPDATE cliente SET ativo = false WHERE id = $1', [user.cliente_id]);
         return res.status(403).json({ error: 'Cliente vencido. Contate o suporte.' });
       }
     }
 
-    // Bloqueia acesso se o cliente estiver inativo
     let clienteAtivo = true;
     if (user.cliente_id) {
-      // Garante boolean correto
-      if (typeof user.cliente_ativo === 'boolean') {
-        clienteAtivo = user.cliente_ativo;
-      } else {
-        clienteAtivo = user.cliente_ativo === 't' || user.cliente_ativo === 'true';
-      }
+      clienteAtivo = typeof user.cliente_ativo === 'boolean'
+        ? user.cliente_ativo
+        : user.cliente_ativo === 't' || user.cliente_ativo === 'true';
     }
 
-    if (!clienteAtivo) {
+    if (!clienteAtivo)
       return res.status(403).json({ error: 'Cliente inativo. Contate o suporte.' });
-    }
 
-    // Verifica senha
     const match = await bcrypt.compare(senha, user.senha);
     if (!match) return res.status(400).json({ error: 'Senha incorreta' });
 
-    // Cria token JWT
     const tokenPayload = { id: user.id, nivel_acesso: user.nivel_acesso };
     if (user.nivel_acesso !== "superadmin") {
       tokenPayload.cliente_id = user.cliente_id;
@@ -166,7 +159,7 @@ const loginUser = async (req, res) => {
         nivel_acesso: user.nivel_acesso,
         cliente_id: user.cliente_id,
         cliente_nome: user.cliente_nome,
-      }
+      },
     });
 
   } catch (err) {
@@ -175,17 +168,16 @@ const loginUser = async (req, res) => {
   }
 };
 
-
 const getUsers = async (req, res) => {
   try {
-    const { nivel_acesso, cliente_id } = req.user; // vem do token JWT
+    const { nivel_acesso, cliente_id } = req.user;
     let result;
 
     if (nivel_acesso === "superadmin") {
-      // superadmin vê todos
-      result = await pool.query('SELECT id, nome, login, cargo, nivel_acesso, cliente_id, ativo FROM usuario');
+      result = await pool.query(
+        'SELECT id, nome, login, cargo, nivel_acesso, cliente_id, ativo FROM usuario'
+      );
     } else {
-      // outros usuários só veem usuários do mesmo cliente
       result = await pool.query(
         'SELECT id, nome, login, cargo, nivel_acesso, cliente_id, ativo FROM usuario WHERE cliente_id = $1',
         [cliente_id]
@@ -199,14 +191,12 @@ const getUsers = async (req, res) => {
   }
 };
 
-
 const updateUser = async (req, res) => {
   const { id } = req.params;
   const { nome, login, senha, cargo, nivel_acesso, ativo } = req.body;
   const cliente_id = req.user.cliente_id;
 
   try {
-    // opcional: atualizar senha somente se fornecida
     const hashedPassword = senha ? await bcrypt.hash(senha, 10) : undefined;
 
     const result = await pool.query(
@@ -222,7 +212,8 @@ const updateUser = async (req, res) => {
       [nome, login, hashedPassword, cargo, nivel_acesso, ativo, id, cliente_id]
     );
 
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado ou não pertence à sua filial' });
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: 'Usuário não encontrado ou não pertence à sua filial' });
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -231,9 +222,8 @@ const updateUser = async (req, res) => {
   }
 };
 
-// controllers/usuarioController.js
 const heartbeat = async (req, res) => {
-  const { id } = req.user; // vem do JWT
+  const { id } = req.user;
   try {
     await pool.query(
       'UPDATE usuario SET ultimo_heartbeat = NOW() WHERE id = $1',
@@ -246,5 +236,12 @@ const heartbeat = async (req, res) => {
   }
 };
 
-
-module.exports = { registerUser, loginUser, getUsers, updateUser, ativarUser, desativarUser, heartbeat };
+module.exports = {
+  registerUser,
+  loginUser,
+  getUsers,
+  updateUser,
+  ativarUser,
+  desativarUser,
+  heartbeat,
+};

@@ -4,7 +4,6 @@ const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("cloudinary").v2;
 
 // ─── Cloudinary config ────────────────────────────────────────────────────────
-// Lê as credenciais do .env — nunca coloque os valores direto aqui
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -16,10 +15,10 @@ const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req) => ({
     folder: "fluxoeasy/logos",
-    public_id: `logo_${req.user.cliente_id}`, // sobrescreve sempre a mesma imagem
+    public_id: `logo_${req.user.cliente_id}`,
     overwrite: true,
     allowed_formats: ["jpg", "jpeg", "png", "webp", "svg"],
-    transformation: [{ width: 400, height: 400, crop: "limit" }], // limita tamanho
+    transformation: [{ width: 400, height: 400, crop: "limit" }],
   }),
 });
 
@@ -30,7 +29,6 @@ const upload = multer({
 
 // ─── Controllers ──────────────────────────────────────────────────────────────
 
-// Listar apenas o cliente vinculado ao usuário logado
 const getClientes = async (req, res) => {
   try {
     let result;
@@ -66,7 +64,6 @@ const getClientes = async (req, res) => {
   }
 };
 
-// Buscar cliente por ID
 const getClienteById = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   const { id } = req.params;
@@ -84,9 +81,6 @@ const getClienteById = async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar cliente" });
   }
 };
-
-// Atualizar cliente
-// Substitua o updateCliente pelo de baixo:
 
 const updateCliente = async (req, res) => {
   const { id } = req.params;
@@ -152,7 +146,6 @@ const updateCliente = async (req, res) => {
   }
 };
 
-// Nova função — apenas superadmin
 const updateDadosInternos = async (req, res) => {
   if (req.user.nivel_acesso !== "superadmin")
     return res.status(403).json({ error: "Acesso negado" });
@@ -178,15 +171,12 @@ const updateDadosInternos = async (req, res) => {
   }
 };
 
-// Upload de logo → Cloudinary
 const uploadLogo = async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "Nenhum arquivo recebido" });
   }
 
   const cliente_id = req.user.cliente_id;
-
-  // req.file.path é a URL pública do Cloudinary (multer-storage-cloudinary já seta isso)
   const logo_url = req.file.path;
 
   try {
@@ -202,7 +192,6 @@ const uploadLogo = async (req, res) => {
   }
 };
 
-// Remover logo → deleta do Cloudinary também
 const removeLogo = async (req, res) => {
   const cliente_id =
     req.user.nivel_acesso === "superadmin"
@@ -210,7 +199,6 @@ const removeLogo = async (req, res) => {
       : req.user.cliente_id;
 
   try {
-    // Busca a logo atual para deletar do Cloudinary
     const { rows } = await pool.query(
       "SELECT logo_url FROM cliente WHERE id=$1",
       [cliente_id],
@@ -218,12 +206,10 @@ const removeLogo = async (req, res) => {
     const logo_url = rows[0]?.logo_url;
 
     if (logo_url) {
-      // Extrai o public_id da URL do Cloudinary para poder deletar
-      // URL exemplo: https://res.cloudinary.com/cloud/image/upload/v123/fluxoeasy/logos/logo_5.png
       const publicId = logo_url
         .split("/upload/")[1]
-        .replace(/^v\d+\//, "") // remove version prefix
-        .replace(/\.[^.]+$/, ""); // remove extensão
+        .replace(/^v\d+\//, "")
+        .replace(/\.[^.]+$/, "");
 
       await cloudinary.uploader.destroy(publicId);
     }
@@ -241,8 +227,8 @@ const removeLogo = async (req, res) => {
 };
 
 const getAllClientes = async (req, res) => {
-  if (req.user.nivel_acesso !== 'superadmin')
-    return res.status(403).json({ error: 'Acesso negado' });
+  if (req.user.nivel_acesso !== "superadmin")
+    return res.status(403).json({ error: "Acesso negado" });
 
   try {
     const result = await pool.query(`
@@ -259,24 +245,38 @@ const getAllClientes = async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    console.error('[getAllClientes]', err);
-    res.status(500).json({ error: 'Erro ao listar clientes' });
+    console.error("[getAllClientes]", err);
+    res.status(500).json({ error: "Erro ao listar clientes" });
   }
 };
 
+// ─── Criar cliente simplificado ───────────────────────────────────────────────
+// Recebe apenas: nome (empresa), nome_proprietario e contato_cliente.
+// Demais dados (CNPJ, email, telefone, endereço) ficam a cargo do próprio cliente.
 const createCliente = async (req, res) => {
   if (req.user.nivel_acesso !== "superadmin")
     return res.status(403).json({ error: "Acesso negado" });
 
-  const { nome, cnpj_cpf, email, telefone, endereco } = req.body;
+  const { nome, nome_proprietario, contato_cliente } = req.body;
+
+  if (!nome?.trim())
+    return res.status(400).json({ error: "Nome da empresa é obrigatório" });
+
   const dataVencimento = new Date();
   dataVencimento.setDate(dataVencimento.getDate() + 14);
 
   try {
     const result = await pool.query(
-      `INSERT INTO cliente (nome, cnpj_cpf, email, telefone, endereco, ativo, data_pagamento, data_vencimento)
-       VALUES ($1, $2, $3, $4, $5, true, NULL, $6) RETURNING *`,
-      [nome, cnpj_cpf, email, telefone, endereco, dataVencimento],
+      `INSERT INTO cliente
+         (nome, nome_proprietario, contato_cliente, ativo, data_pagamento, data_vencimento)
+       VALUES ($1, $2, $3, true, NULL, $4)
+       RETURNING *`,
+      [
+        nome.trim(),
+        nome_proprietario?.trim() || null,
+        contato_cliente?.trim() || null,
+        dataVencimento,
+      ],
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
