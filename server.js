@@ -51,7 +51,8 @@ app.use("/api/dashboard", auth, checkClienteAtivo, getPlano, require("./routes/d
 app.use("/api/calendario", auth, checkClienteAtivo, getPlano, require("./routes/calendario"));
 app.use("/api/aluguel", auth, checkClienteAtivo, getPlano, require("./routes/aluguel"));
 app.use("/api/email", require("./routes/email"));
-
+app.use("/api/sub-clientes", require("./routes/subCliente"));
+app.use("/api/orcamentos", require("./routes/orcamento"));
 
 
 const PORT = process.env.PORT || 5000;
