@@ -1,0 +1,480 @@
+-- =============================================================================
+-- SCHEMA COMPLETO — FluxoEasy
+-- Gerado em: 2026-06-03
+-- Fonte: controllers analisados (cliente, usuario, produto, entrada, estoque,
+--        venda, orcamento, sub_cliente, aluguel, calendario, templates)
+-- =============================================================================
+
+
+-- =============================================================================
+-- 1. PLANOS (sem dependências)
+-- =============================================================================
+CREATE TABLE planos (
+  id                  SERIAL PRIMARY KEY,
+  nome                TEXT NOT NULL,
+  valor               NUMERIC(10,2) NOT NULL,
+  duracao_dias        INTEGER NOT NULL,
+  ativo               BOOLEAN DEFAULT true,
+  limite_produtos     INTEGER,
+  limite_usuarios     INTEGER,
+  possui_relatorios   BOOLEAN DEFAULT false,
+  possui_nfe          BOOLEAN DEFAULT false,
+  possui_avaria       BOOLEAN DEFAULT false,
+  criado_em           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- =============================================================================
+-- 2. CLIENTE (depende de planos)
+-- =============================================================================
+CREATE TABLE cliente (
+  id                  SERIAL PRIMARY KEY,
+  nome                TEXT NOT NULL,
+  cnpj_cpf            TEXT,
+  cnpj_cpf_limpo      TEXT,
+  email               TEXT,
+  telefone            TEXT,
+  endereco            TEXT,
+  logo_url            TEXT,
+  ativo               BOOLEAN DEFAULT true,
+  data_pagamento      DATE,
+  data_vencimento     DATE,
+  plano_id            INTEGER,
+
+  -- campos internos (gerenciados pelo superadmin)
+  nome_proprietario   TEXT,
+  contato_cliente     TEXT,
+
+  -- preferências de impressão
+  tipo_impressao      TEXT,
+  largura_bobina      TEXT,
+  auto_imprimir       BOOLEAN DEFAULT false,
+
+  criado_em           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_cliente_plano
+    FOREIGN KEY (plano_id) REFERENCES planos(id)
+);
+
+CREATE UNIQUE INDEX ux_cliente_cnpj
+  ON cliente (cnpj_cpf)
+  WHERE cnpj_cpf IS NOT NULL;
+
+CREATE UNIQUE INDEX ux_cliente_cnpj_limpo
+  ON cliente (cnpj_cpf_limpo)
+  WHERE cnpj_cpf_limpo IS NOT NULL;
+
+
+-- =============================================================================
+-- 3. USUARIO (depende de cliente)
+-- =============================================================================
+CREATE TABLE usuario (
+  id              SERIAL PRIMARY KEY,
+  nome            TEXT NOT NULL,
+  login           TEXT NOT NULL UNIQUE,
+  senha           TEXT NOT NULL,
+  cargo           TEXT,
+  nivel_acesso    TEXT NOT NULL,   -- 'superadmin' | 'admin' | 'vendedor'
+  cliente_id      INTEGER,
+  ativo           BOOLEAN DEFAULT true,
+  ultimo_heartbeat TIMESTAMP,
+  criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_usuario_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+
+  CONSTRAINT chk_usuario_nivel
+    CHECK (
+      (nivel_acesso = 'superadmin' AND cliente_id IS NULL)
+      OR
+      (nivel_acesso <> 'superadmin' AND cliente_id IS NOT NULL)
+    )
+);
+
+
+-- =============================================================================
+-- 4. SUB_CLIENTE (depende de cliente)
+-- =============================================================================
+CREATE TABLE sub_cliente (
+  id          SERIAL PRIMARY KEY,
+  cliente_id  INTEGER NOT NULL,
+  nome        TEXT NOT NULL,
+  cpf_cnpj    TEXT,
+  email       TEXT,
+  telefone    TEXT,
+  endereco    TEXT,
+  observacoes TEXT,
+  ativo       BOOLEAN DEFAULT true,
+  criado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_sub_cliente_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id)
+);
+
+CREATE INDEX idx_sub_cliente_cliente
+  ON sub_cliente (cliente_id);
+
+
+-- =============================================================================
+-- 5. PRODUTO (depende de cliente)
+--    tipo: 'produto' | 'servico' | 'alugavel'
+-- =============================================================================
+CREATE TABLE produto (
+  id           SERIAL PRIMARY KEY,
+  nome         TEXT NOT NULL,
+  descricao    TEXT,
+  ean          TEXT,
+  preco_custo  NUMERIC(10,2),
+  valor_diaria NUMERIC(10,2),            -- usado quando tipo = 'alugavel'
+  estoque      INTEGER DEFAULT 0,
+  tipo         TEXT NOT NULL DEFAULT 'produto',  -- 'produto' | 'servico' | 'alugavel'
+  cliente_id   INTEGER NOT NULL,
+  ativo        BOOLEAN DEFAULT true,
+  criado_em    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_produto_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id)
+);
+
+CREATE INDEX idx_produto_cliente
+  ON produto (cliente_id);
+
+
+-- =============================================================================
+-- 6. ENTRADA (depende de cliente, produto, usuario)
+-- =============================================================================
+CREATE TABLE entrada (
+  id            SERIAL PRIMARY KEY,
+  cliente_id    INTEGER NOT NULL,
+  produto_id    INTEGER NOT NULL,
+  usuario_id    INTEGER NOT NULL,
+  quantidade    INTEGER NOT NULL CHECK (quantidade > 0),
+  preco_custo   NUMERIC(10,2) NOT NULL,
+  data_validade DATE,
+  observacao    TEXT,
+  data_entrada  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_entrada_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+  CONSTRAINT fk_entrada_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id),
+  CONSTRAINT fk_entrada_usuario
+    FOREIGN KEY (usuario_id) REFERENCES usuario(id)
+);
+
+CREATE UNIQUE INDEX ux_entrada_unica
+  ON entrada (cliente_id, produto_id, preco_custo, data_validade, observacao);
+
+CREATE INDEX idx_entrada_cliente_data
+  ON entrada (cliente_id, data_entrada);
+
+
+-- =============================================================================
+-- 7. ESTOQUE (depende de produto, cliente, entrada)
+-- =============================================================================
+CREATE TABLE estoque (
+  id               SERIAL PRIMARY KEY,
+  produto_id       INTEGER NOT NULL,
+  cliente_id       INTEGER NOT NULL,
+  quantidade       INTEGER NOT NULL CHECK (quantidade >= 0),
+  preco_custo      NUMERIC(10,2) NOT NULL,
+  valor_venda      NUMERIC(10,2),
+  data_validade    DATE,
+  entrada_id       INTEGER,
+  data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_estoque_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id),
+  CONSTRAINT fk_estoque_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+  CONSTRAINT fk_estoque_entrada
+    FOREIGN KEY (entrada_id) REFERENCES entrada(id),
+
+  CONSTRAINT unique_entrada
+    UNIQUE (entrada_id)
+);
+
+CREATE UNIQUE INDEX ux_lote_unico
+  ON estoque (produto_id, cliente_id, preco_custo, data_validade)
+  WHERE data_validade IS NOT NULL;
+
+CREATE INDEX idx_estoque_produto_cliente ON estoque (produto_id, cliente_id);
+CREATE INDEX idx_estoque_validade        ON estoque (data_validade);
+CREATE INDEX idx_estoque_busca           ON estoque (produto_id, cliente_id, quantidade);
+CREATE INDEX idx_estoque_cliente         ON estoque (cliente_id);
+
+
+-- =============================================================================
+-- 8. VENDA (depende de cliente, usuario, sub_cliente)
+-- =============================================================================
+CREATE TABLE venda (
+  id              SERIAL PRIMARY KEY,
+  cliente_id      INTEGER NOT NULL,
+  usuario_id      INTEGER,
+  sub_cliente_id  INTEGER,
+  orcamento_id    INTEGER,              -- referência preenchida na conversão
+  forma_pagamento TEXT NOT NULL,
+  valor_total     NUMERIC(10,2) NOT NULL,
+  valor_pago      NUMERIC(10,2) DEFAULT 0,
+  troco           NUMERIC(10,2) DEFAULT 0,
+  desconto        NUMERIC(10,2) DEFAULT 0,
+  criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_venda_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+  CONSTRAINT fk_venda_usuario
+    FOREIGN KEY (usuario_id) REFERENCES usuario(id),
+  CONSTRAINT fk_venda_sub_cliente
+    FOREIGN KEY (sub_cliente_id) REFERENCES sub_cliente(id)
+);
+
+CREATE INDEX idx_venda_cliente_data ON venda (cliente_id, criado_em);
+
+
+-- =============================================================================
+-- 9. VENDA_ITEM (depende de venda, produto)
+-- =============================================================================
+CREATE TABLE venda_item (
+  id             SERIAL PRIMARY KEY,
+  venda_id       INTEGER NOT NULL,
+  produto_id     INTEGER,                -- NULL quando item manual/serviço sem produto
+  quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
+  valor_unitario NUMERIC(10,2) NOT NULL,
+  valor_total    NUMERIC(10,2) NOT NULL,
+
+  CONSTRAINT fk_venda_item_venda
+    FOREIGN KEY (venda_id) REFERENCES venda(id) ON DELETE CASCADE,
+  CONSTRAINT fk_venda_item_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id)
+);
+
+CREATE INDEX idx_venda_item_venda ON venda_item (venda_id);
+
+
+-- =============================================================================
+-- 10. VENDA_PAGAMENTO (depende de venda)
+--     Formas válidas: 'Dinheiro' | 'Cartão Crédito' | 'Cartão Débito' | 'Pix'
+-- =============================================================================
+CREATE TABLE venda_pagamento (
+  id        SERIAL PRIMARY KEY,
+  venda_id  INTEGER NOT NULL,
+  forma     TEXT NOT NULL,
+  valor     NUMERIC(10,2) NOT NULL,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_venda_pgto_venda
+    FOREIGN KEY (venda_id) REFERENCES venda(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_venda_pgto_venda ON venda_pagamento (venda_id);
+
+
+-- =============================================================================
+-- 11. ORCAMENTO (depende de cliente, sub_cliente)
+--     status: 'aberto' | 'aprovado' | 'recusado' | 'convertido'
+-- =============================================================================
+CREATE TABLE orcamento (
+  id             SERIAL PRIMARY KEY,
+  cliente_id     INTEGER NOT NULL,
+  sub_cliente_id INTEGER,
+  status         TEXT NOT NULL DEFAULT 'aberto',
+  observacoes    TEXT,
+  footer_message TEXT,
+  primary_color  TEXT DEFAULT '#1A56DB',
+  desconto       NUMERIC(10,2) DEFAULT 0,
+  valor_total    NUMERIC(10,2) NOT NULL DEFAULT 0,
+  criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_orcamento_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+  CONSTRAINT fk_orcamento_sub_cliente
+    FOREIGN KEY (sub_cliente_id) REFERENCES sub_cliente(id),
+  CONSTRAINT chk_orcamento_status
+    CHECK (status IN ('aberto', 'aprovado', 'recusado', 'convertido'))
+);
+
+CREATE INDEX idx_orcamento_cliente ON orcamento (cliente_id);
+
+
+-- =============================================================================
+-- 12. ORCAMENTO_ITEM (depende de orcamento, produto)
+--     tipo: 'produto' | 'servico' | 'alugavel' | 'manual'
+-- =============================================================================
+CREATE TABLE orcamento_item (
+  id             SERIAL PRIMARY KEY,
+  orcamento_id   INTEGER NOT NULL,
+  produto_id     INTEGER,              -- NULL para itens manuais
+  nome           TEXT NOT NULL,
+  quantidade     INTEGER NOT NULL DEFAULT 1,
+  valor_unitario NUMERIC(10,2) NOT NULL DEFAULT 0,
+  valor_total    NUMERIC(10,2) NOT NULL DEFAULT 0,
+  tipo           TEXT NOT NULL DEFAULT 'produto',
+  em_estoque     BOOLEAN DEFAULT true,
+
+  CONSTRAINT fk_orc_item_orcamento
+    FOREIGN KEY (orcamento_id) REFERENCES orcamento(id) ON DELETE CASCADE,
+  CONSTRAINT fk_orc_item_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id)
+);
+
+CREATE INDEX idx_orcamento_item_orc ON orcamento_item (orcamento_id);
+
+
+-- =============================================================================
+-- 13. CALENDARIO_EVENTO (depende de cliente, usuario)
+--     tipo:   'aluguel' | 'outro' | ...
+--     status: 'pendente' | 'confirmado' | 'concluido' | 'cancelado'
+-- =============================================================================
+CREATE TABLE calendario_evento (
+  id          SERIAL PRIMARY KEY,
+  cliente_id  INTEGER NOT NULL,
+  usuario_id  INTEGER,
+  titulo      TEXT NOT NULL,
+  descricao   TEXT,
+  tipo        TEXT NOT NULL DEFAULT 'outro',
+  data_inicio TIMESTAMP NOT NULL,
+  data_fim    TIMESTAMP,
+  dia_todo    BOOLEAN DEFAULT false,
+  status      TEXT NOT NULL DEFAULT 'pendente',
+  cor         TEXT DEFAULT '#3b7eff',
+  observacoes TEXT,
+  criado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_evento_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+  CONSTRAINT fk_evento_usuario
+    FOREIGN KEY (usuario_id) REFERENCES usuario(id),
+  CONSTRAINT chk_evento_status
+    CHECK (status IN ('pendente', 'confirmado', 'concluido', 'cancelado'))
+);
+
+CREATE INDEX idx_evento_cliente_data ON calendario_evento (cliente_id, data_inicio);
+
+
+-- =============================================================================
+-- 14. ALUGUEL (depende de cliente, calendario_evento)
+--     status: 'reservado' | 'confirmado' | 'em_andamento' | 'devolvido' | 'cancelado'
+-- =============================================================================
+CREATE TABLE aluguel (
+  id               SERIAL PRIMARY KEY,
+  cliente_id       INTEGER NOT NULL,
+  evento_id        INTEGER,
+  locatario_nome   TEXT,
+  locatario_cpf    TEXT,
+  locatario_tel    TEXT,
+  locatario_email  TEXT,
+  locatario_end    TEXT,
+  data_retirada    TIMESTAMP NOT NULL,
+  data_devolucao   TIMESTAMP NOT NULL,
+  valor_total      NUMERIC(10,2) NOT NULL DEFAULT 0,
+  valor_pago       NUMERIC(10,2) NOT NULL DEFAULT 0,
+  desconto         NUMERIC(10,2) DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'reservado',
+  observacoes      TEXT,
+  criado_em        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_aluguel_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id),
+  CONSTRAINT fk_aluguel_evento
+    FOREIGN KEY (evento_id) REFERENCES calendario_evento(id),
+  CONSTRAINT chk_aluguel_status
+    CHECK (status IN ('reservado', 'confirmado', 'em_andamento', 'devolvido', 'cancelado'))
+);
+
+CREATE INDEX idx_aluguel_cliente  ON aluguel (cliente_id);
+CREATE INDEX idx_aluguel_periodo  ON aluguel (data_retirada, data_devolucao);
+CREATE INDEX idx_aluguel_status   ON aluguel (status);
+
+
+-- =============================================================================
+-- 15. ALUGUEL_ITEM (depende de aluguel, produto)
+-- =============================================================================
+CREATE TABLE aluguel_item (
+  id             SERIAL PRIMARY KEY,
+  aluguel_id     INTEGER NOT NULL,
+  produto_id     INTEGER NOT NULL,
+  quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
+  valor_unitario NUMERIC(10,2) NOT NULL,   -- valor_diaria
+  dias           INTEGER NOT NULL,
+  valor_total    NUMERIC(10,2) NOT NULL,
+
+  CONSTRAINT fk_aluguel_item_aluguel
+    FOREIGN KEY (aluguel_id) REFERENCES aluguel(id) ON DELETE CASCADE,
+  CONSTRAINT fk_aluguel_item_produto
+    FOREIGN KEY (produto_id) REFERENCES produto(id)
+);
+
+CREATE INDEX idx_aluguel_item_aluguel ON aluguel_item (aluguel_id);
+
+
+-- =============================================================================
+-- 16. ALUGUEL_PAGAMENTO (depende de aluguel)
+--     tipo: 'sinal' | 'parcela' | 'quitacao'
+-- =============================================================================
+CREATE TABLE aluguel_pagamento (
+  id         SERIAL PRIMARY KEY,
+  aluguel_id INTEGER NOT NULL,
+  forma      TEXT NOT NULL,
+  valor      NUMERIC(10,2) NOT NULL,
+  tipo       TEXT NOT NULL DEFAULT 'parcela',
+  observacao TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_aluguel_pgto_aluguel
+    FOREIGN KEY (aluguel_id) REFERENCES aluguel(id) ON DELETE CASCADE,
+  CONSTRAINT chk_aluguel_pgto_tipo
+    CHECK (tipo IN ('sinal', 'parcela', 'quitacao'))
+);
+
+CREATE INDEX idx_aluguel_pgto_aluguel ON aluguel_pagamento (aluguel_id);
+
+
+-- =============================================================================
+-- 17. CLIENTE_TEMPLATES (depende de cliente)
+--     tipo:      'recibo' | 'etiqueta_produto'
+--     categoria: usada para agrupar etiquetas (ex: 'produto', 'gondola', ...)
+-- =============================================================================
+CREATE TABLE cliente_templates (
+  id                  SERIAL PRIMARY KEY,
+  cliente_id          INTEGER,             -- NULL quando is_system = true
+  tipo                TEXT NOT NULL,
+  nome                TEXT NOT NULL,
+  descricao           TEXT,
+  conteudo_xml        TEXT NOT NULL,
+  ativo               BOOLEAN DEFAULT true,
+  is_system           BOOLEAN DEFAULT false,
+  categoria           TEXT,
+  is_padrao_categoria BOOLEAN DEFAULT false,
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_template_cliente
+    FOREIGN KEY (cliente_id) REFERENCES cliente(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_template_cliente_tipo
+  ON cliente_templates (cliente_id, tipo);
+
+CREATE INDEX idx_template_sistema
+  ON cliente_templates (is_system, tipo);
+
+  -- =============================================================================
+-- SEED — Superadmin global
+-- Login: silt
+-- Senha: jms11728  (hash bcrypt abaixo)
+-- =============================================================================
+
+INSERT INTO usuario (nome, login, senha, nivel_acesso, cliente_id, ativo)
+VALUES (
+  'Silt',
+  'silt',
+  '$2b$10$YANnkT867iieYYl7qvLMJexHFuF0rT.aYoy/ICg0S54lPW3oHGb3G',
+  'superadmin',
+  NULL,
+  true
+)
+ON CONFLICT (login) DO UPDATE
+  SET senha        = EXCLUDED.senha,
+      nivel_acesso = 'superadmin',
+      ativo        = true;
