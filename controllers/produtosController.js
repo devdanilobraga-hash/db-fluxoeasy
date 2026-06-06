@@ -1,4 +1,13 @@
 const pool = require('../db');
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -17,6 +26,8 @@ const createProduto = async (req, res) => {
     preco_custo,
     valor_diaria,
     estoque,
+    marca,
+    imagem_url,
     tipo = 'produto',
   } = req.body;
 
@@ -40,12 +51,37 @@ const createProduto = async (req, res) => {
 
     // ── 1. Cria o produto ──────────────────────────────────────────────────
     const produtoResult = await client.query(
-      `INSERT INTO produto
-         (nome, descricao, ean, preco_custo, estoque, cliente_id, ativo, tipo, valor_diaria)
-       VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8)
-       RETURNING *`,
-      [nome, descricao, ean || null, preco_custo || 0, estoqueInicial, cliente_id, tipo, valorDiaria]
-    );
+  `INSERT INTO produto
+     (
+       nome,
+       descricao,
+       ean,
+       preco_custo,
+       estoque,
+       cliente_id,
+       ativo,
+       tipo,
+       valor_diaria,
+       marca,
+       imagem_url
+     )
+   VALUES (
+     $1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10
+   )
+   RETURNING *`,
+  [
+    nome,
+    descricao,
+    ean || null,
+    preco_custo || 0,
+    estoqueInicial,
+    cliente_id,
+    tipo,
+    valorDiaria,
+    marca || null,
+    imagem_url || null,
+  ]
+);
 
     const produto = produtoResult.rows[0];
 
@@ -104,6 +140,54 @@ const createProduto = async (req, res) => {
   }
 };
 
+const removerImagemProduto = async (req, res) => {
+  const { id } = req.params;
+  const cliente_id = req.user.cliente_id;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT imagem_url
+       FROM produto
+       WHERE id = $1
+         AND cliente_id = $2`,
+      [id, cliente_id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        error: "Produto não encontrado",
+      });
+    }
+
+    const imagem_url = rows[0].imagem_url;
+
+    if (imagem_url) {
+      const publicId = imagem_url
+        .split("/upload/")[1]
+        .replace(/^v\d+\//, "")
+        .replace(/\.[^.]+$/, "");
+
+      await cloudinary.uploader.destroy(publicId);
+    }
+
+    const result = await pool.query(
+      `UPDATE produto
+       SET imagem_url = NULL
+       WHERE id = $1
+         AND cliente_id = $2
+       RETURNING *`,
+      [id, cliente_id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("[removerImagemProduto]", err);
+    res.status(500).json({
+      error: "Erro ao remover imagem",
+    });
+  }
+};
+
 // ─── Listar ───────────────────────────────────────────────────────────────────
 const getProdutos = async (req, res) => {
   const cliente_id = req.user.cliente_id;
@@ -154,7 +238,7 @@ const getProdutoById = async (req, res) => {
 const updateProduto = async (req, res) => {
   const { id } = req.params;
   const cliente_id = req.user.cliente_id;
-  const { nome, descricao, ean, preco_custo, ativo, tipo, valor_diaria } = req.body;
+  const { nome, descricao, ean, preco_custo, ativo, tipo, valor_diaria, marca, imagem_url } = req.body;
 
   try {
     const { rows } = await pool.query(
@@ -180,29 +264,101 @@ const updateProduto = async (req, res) => {
     }
 
     const result = await pool.query(
-      `UPDATE produto
-       SET nome=$1, descricao=$2, ean=$3, preco_custo=$4,
-           ativo=$5, tipo=$6, valor_diaria=$7
-       WHERE id=$8 AND cliente_id=$9
-       RETURNING *`,
-      [
-        nome        ?? atual.nome,
-        descricao   ?? atual.descricao,
-        ean         !== undefined ? ean : atual.ean,
-        preco_custo ?? atual.preco_custo,
-        ativo       ?? atual.ativo,
-        novoTipo,
-        novoValorDiaria,
-        id,
-        cliente_id,
-      ]
-    );
+  `UPDATE produto
+   SET nome=$1,
+       descricao=$2,
+       ean=$3,
+       preco_custo=$4,
+       ativo=$5,
+       tipo=$6,
+       valor_diaria=$7,
+       marca=$8,
+       imagem_url=$9
+   WHERE id=$10
+     AND cliente_id=$11
+   RETURNING *`,
+  [
+    nome ?? atual.nome,
+    descricao ?? atual.descricao,
+    ean !== undefined ? ean : atual.ean,
+    preco_custo ?? atual.preco_custo,
+    ativo ?? atual.ativo,
+    novoTipo,
+    novoValorDiaria,
+    marca ?? atual.marca,
+    imagem_url !== undefined ? imagem_url : atual.imagem_url,
+    id,
+    cliente_id,
+  ]
+);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[updateProduto]', err);
     res.status(500).json({ error: 'Erro ao atualizar produto' });
   }
 };
+
+const uploadImagemProduto = async (req, res) => {
+  const { id } = req.params;
+  const cliente_id = req.user.cliente_id;
+
+  if (!req.file) {
+    return res.status(400).json({
+      error: "Nenhuma imagem enviada",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE produto
+       SET imagem_url = $1
+       WHERE id = $2
+         AND cliente_id = $3
+       RETURNING *`,
+      [req.file.path, id, cliente_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Produto não encontrado",
+      });
+    }
+
+    res.json({
+      imagem_url: req.file.path,
+      produto: result.rows[0],
+    });
+  } catch (err) {
+    console.error("[uploadImagemProduto]", err);
+    res.status(500).json({
+      error: "Erro ao salvar imagem",
+    });
+  }
+};
+
+const storageProduto = new CloudinaryStorage({
+  cloudinary,
+  params: async (req) => ({
+    folder: "fluxoeasy/produtos",
+    public_id: `produto_${req.params.id}`,
+    overwrite: true,
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    transformation: [
+      {
+        width: 1000,
+        height: 1000,
+        crop: "limit",
+      },
+    ],
+  }),
+});
+
+const uploadProduto = multer({
+  storage: storageProduto,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});
 
 // ─── Ativar / Desativar ───────────────────────────────────────────────────────
 const ativarProduto = async (req, res) => {
@@ -244,4 +400,7 @@ module.exports = {
   updateProduto,
   ativarProduto,
   desativarProduto,
+  uploadImagemProduto,
+  removerImagemProduto,
+  uploadProduto,
 };

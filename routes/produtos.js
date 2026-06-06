@@ -6,7 +6,10 @@ const {
   getProdutoById, 
   updateProduto, 
   desativarProduto,
-  ativarProduto
+  ativarProduto,
+  removerImagemProduto,
+  uploadImagemProduto,
+  uploadProduto,
 } = require('../controllers/produtosController');
 const auth = require('../middleware/auth');
 
@@ -16,5 +19,7 @@ router.get('/:id', auth, getProdutoById);      // buscar por id
 router.put('/:id', auth, updateProduto);       // atualizar
 router.put('/:id/desativar', auth, desativarProduto); // ✅ desativar
 router.put('/:id/ativar', auth, ativarProduto);
+router.post("/:id/imagem", auth, uploadProduto.single("imagem"),uploadImagemProduto);
+router.delete("/:id/imagem", auth,removerImagemProduto);
 
 module.exports = router;
