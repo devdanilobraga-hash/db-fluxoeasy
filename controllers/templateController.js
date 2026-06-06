@@ -776,8 +776,6 @@ function montarReciboA4(xml, venda, itens, pagamentos, subtotal) {
 }
 
 // ─── POST /clientes/:id/imprimir/etiqueta ────────────────────────────────────
-// Agora aceita `categoria` como alternativa a `template_id`.
-
 const renderizarEtiqueta = async (req, res) => {
   const cliente_id = req.user.cliente_id;
   const { produto_ids, template_id, venda_id, categoria } = req.body;
@@ -786,6 +784,7 @@ const renderizarEtiqueta = async (req, res) => {
     return res.status(400).json({ error: "produto_ids[] é obrigatório" });
 
   try {
+    // ── 1. Busca o template ───────────────────────────────────────────────────
     let xmlBase;
 
     if (template_id) {
@@ -798,8 +797,8 @@ const renderizarEtiqueta = async (req, res) => {
       if (tmpl.length === 0)
         return res.status(404).json({ error: "Template não encontrado" });
       xmlBase = tmpl[0].conteudo_xml;
+
     } else if (categoria) {
-      // Busca o padrão da categoria informada
       const { rows: tmpl } = await pool.query(
         `SELECT conteudo_xml FROM cliente_templates
          WHERE cliente_id = $1 AND tipo = 'etiqueta_produto'
@@ -812,8 +811,8 @@ const renderizarEtiqueta = async (req, res) => {
           error: `Nenhum template padrão para a categoria "${categoria}"`,
         });
       xmlBase = tmpl[0].conteudo_xml;
+
     } else {
-      // Fallback: padrão da categoria 'produto', ou qualquer ativo
       const { rows: tmpl } = await pool.query(
         `SELECT conteudo_xml FROM cliente_templates
          WHERE tipo = 'etiqueta_produto' AND ativo = true
@@ -827,13 +826,84 @@ const renderizarEtiqueta = async (req, res) => {
         [cliente_id],
       );
       if (tmpl.length === 0)
-        return res
-          .status(404)
-          .json({ error: "Nenhum template de etiqueta disponível" });
+        return res.status(404).json({ error: "Nenhum template de etiqueta disponível" });
       xmlBase = tmpl[0].conteudo_xml;
     }
 
-    // ... resto do código original (dados de cliente, venda, produtos, map) ...
+    // ── 2. Busca dados do cliente ─────────────────────────────────────────────
+    const { rows: clienteRows } = await pool.query(
+      `SELECT nome, cnpj_cpf FROM cliente WHERE id = $1`,
+      [cliente_id],
+    );
+    const cliente = clienteRows[0] ?? { nome: "", cnpj_cpf: "" };
+
+    // ── 3. Busca dados da venda (opcional) ────────────────────────────────────
+    let venda = null;
+    if (venda_id) {
+      const { rows: vendaRows } = await pool.query(
+        `SELECT v.id, v.forma_pagamento, v.created_at,
+                u.nome AS vendedor_nome
+         FROM venda v
+         JOIN usuario u ON u.id = v.usuario_id
+         WHERE v.id = $1 AND v.cliente_id = $2`,
+        [venda_id, cliente_id],
+      );
+      venda = vendaRows[0] ?? null;
+    }
+
+    // ── 4. Busca produtos e gera uma etiqueta por produto ─────────────────────
+    const etiquetas = [];
+
+    for (const produto_id of produto_ids) {
+      const { rows: prodRows } = await pool.query(
+        `SELECT p.id, p.nome, p.ean, p.descricao,
+                e.valor_venda AS preco_venda,
+                p.preco_custo
+         FROM produto p
+         LEFT JOIN estoque e ON e.produto_id = p.id
+           AND e.cliente_id = $2
+         WHERE p.id = $1 AND p.cliente_id = $2`,
+        [produto_id, cliente_id],
+      );
+
+      if (prodRows.length === 0) continue;
+      const prod = prodRows[0];
+
+      const dataHora = new Date().toLocaleString("pt-BR", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+
+      const fmtPreco = (v) =>
+        Number(v || 0).toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      let xml = xmlBase
+        .replace(/\{\{produto\.nome\}\}/g,        prod.nome ?? "")
+        .replace(/\{\{produto\.descricao\}\}/g,   prod.descricao ?? "")
+        .replace(/\{\{produto\.ean\}\}/g,          prod.ean ?? "")
+        .replace(/\{\{produto\.preco_venda\}\}/g,  fmtPreco(prod.preco_venda))
+        .replace(/\{\{produto\.preco_custo\}\}/g,  fmtPreco(prod.preco_custo))
+        .replace(/\{\{cliente\.nome\}\}/g,         cliente.nome ?? "")
+        .replace(/\{\{cliente\.cnpj_cpf\}\}/g,     cliente.cnpj_cpf ?? "")
+        .replace(/\{\{data_hora\}\}/g,             dataHora)
+        .replace(/\{\{vendedor\.nome\}\}/g,        venda?.vendedor_nome ?? "")
+        .replace(/\{\{venda\.forma_pagamento\}\}/g, venda?.forma_pagamento ?? "");
+
+      etiquetas.push({
+        produto_id: prod.id,
+        produto_nome: prod.nome,
+        xml,
+      });
+    }
+
+    if (etiquetas.length === 0)
+      return res.status(404).json({ error: "Nenhum produto encontrado" });
+
+    res.json({ etiquetas });
+
   } catch (err) {
     console.error("[renderizarEtiqueta]", err);
     res.status(500).json({ error: "Erro ao renderizar etiqueta" });
