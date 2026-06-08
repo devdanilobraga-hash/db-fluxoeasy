@@ -50,10 +50,11 @@ app.use("/api/venda", auth, checkClienteAtivo, getPlano, require("./routes/venda
 app.use("/api/dashboard", auth, checkClienteAtivo, getPlano, require("./routes/dashboard"));
 app.use("/api/calendario", auth, checkClienteAtivo, getPlano, require("./routes/calendario"));
 app.use("/api/aluguel", auth, checkClienteAtivo, getPlano, require("./routes/aluguel"));
+app.use("/api/despesas", auth, checkClienteAtivo, getPlano, require("./routes/despesas"));
 app.use("/api/email", require("./routes/email"));
 app.use("/api/sub-clientes", require("./routes/subCliente"));
 app.use("/api/orcamentos", require("./routes/orcamento"));
-
+app.use("/api/faturamento", require("./routes/faturamento"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Backend rodando na porta ${PORT}`));

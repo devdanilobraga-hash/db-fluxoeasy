@@ -6,21 +6,12 @@ const pool = require("../db");
  */
 const criarVenda = async (req, res) => {
   const { cliente_id, id: usuario_id } = req.user;
-  const {
-    itens,
-    pagamentos,
-    forma_pagamento,
-    valor_pago,
-    desconto,
-    sub_cliente_id,   // ← novo campo opcional
-  } = req.body;
+  const { itens, pagamentos, forma_pagamento, valor_pago, desconto, sub_cliente_id } = req.body;
 
   if (!itens || itens.length === 0)
     return res.status(400).json({ error: "Nenhum item para venda." });
 
-  // ── Pagamentos ────────────────────────────────────────────────────────────
   let pgtos = Array.isArray(pagamentos) && pagamentos.length > 0 ? pagamentos : null;
-
   if (!pgtos) {
     if (forma_pagamento && valor_pago) {
       pgtos = [{ forma: forma_pagamento, valor: Number(valor_pago) }];
@@ -37,12 +28,11 @@ const criarVenda = async (req, res) => {
       return res.status(400).json({ error: `Valor inválido para ${p.forma}` });
   }
 
-  const descontoVal    = Number(desconto) || 0;
-  const totalPago      = Number(pgtos.reduce((acc, p) => acc + Number(p.valor), 0).toFixed(2));
+  const descontoVal = Number(desconto) || 0;
+  const totalPago = Number(pgtos.reduce((acc, p) => acc + Number(p.valor), 0).toFixed(2));
   const formaPrincipal = [...new Set(pgtos.map((p) => p.forma))].join(" + ");
-  const subClienteId   = sub_cliente_id || null;
+  const subClienteId = sub_cliente_id || null;
 
-  // ── Verifica se tabela venda_pagamento existe ─────────────────────────────
   let tabelaPgtoExiste = false;
   try {
     const chk = await pool.query(`
@@ -53,7 +43,6 @@ const criarVenda = async (req, res) => {
     tabelaPgtoExiste = chk.rows[0].existe === true;
   } catch (_) {}
 
-  // ── Transação ─────────────────────────────────────────────────────────────
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -64,7 +53,6 @@ const criarVenda = async (req, res) => {
     for (const item of itens) {
       const { produto_id, quantidade, tipo = "produto" } = item;
       const qtd = Number(quantidade);
-
       if (!qtd || qtd <= 0) {
         await client.query("ROLLBACK");
         return res.status(400).json({ error: "Quantidade inválida." });
@@ -93,13 +81,22 @@ const criarVenda = async (req, res) => {
         }
         const vi = Number((vu * qtd).toFixed(2));
         valor_total += vi;
-        vendaItens.push({ tipo: "servico", estoque_id: null, produto_id, quantidade: qtd, valor_unitario: vu, valor_total: vi });
+        const custoUnitario = Number(s.preco_custo);
+        vendaItens.push({
+          tipo: "servico",
+          estoque_id: null,
+          produto_id,
+          quantidade: qtd,
+          valor_unitario: vu,
+          valor_total: vi,
+          custo_unitario: custoUnitario,
+        });
         continue;
       }
 
       // ── Produto físico ─────────────────────────────────────────────────────
       const estoqueRes = await client.query(
-        `SELECT id, quantidade, valor_venda FROM estoque
+        `SELECT id, quantidade, valor_venda, preco_custo FROM estoque
          WHERE produto_id=$1 AND cliente_id=$2 AND quantidade>0
          ORDER BY data_validade ASC LIMIT 1`,
         [produto_id, cliente_id]
@@ -122,11 +119,19 @@ const criarVenda = async (req, res) => {
       }
       const vi = Number((vu * qtd).toFixed(2));
       valor_total += vi;
-      vendaItens.push({ tipo: "produto", estoque_id: lote.id, produto_id, quantidade: qtd, valor_unitario: vu, valor_total: vi });
+      const custoUnitario = Number(lote.preco_custo); // ✅ agora lote está definido
+      vendaItens.push({
+        tipo: "produto",
+        estoque_id: lote.id,
+        produto_id,
+        quantidade: qtd,
+        valor_unitario: vu,
+        valor_total: vi,
+        custo_unitario: custoUnitario,
+      });
     }
 
     valor_total = Number((valor_total - descontoVal).toFixed(2));
-
     if (totalPago < valor_total) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -136,7 +141,6 @@ const criarVenda = async (req, res) => {
 
     const troco = Number((totalPago - valor_total).toFixed(2));
 
-    // Valida sub_cliente (se informado)
     if (subClienteId) {
       const scCheck = await client.query(
         `SELECT id FROM sub_cliente WHERE id=$1 AND cliente_id=$2 AND ativo=true`,
@@ -148,22 +152,18 @@ const criarVenda = async (req, res) => {
       }
     }
 
-    // ── INSERT venda ──────────────────────────────────────────────────────────
     const vendaResult = await client.query(
-      `INSERT INTO venda
-         (cliente_id, sub_cliente_id, usuario_id, forma_pagamento, valor_total, valor_pago, troco, desconto)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING *`,
+      `INSERT INTO venda (cliente_id, sub_cliente_id, usuario_id, forma_pagamento, valor_total, valor_pago, troco, desconto)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [cliente_id, subClienteId, usuario_id, formaPrincipal, valor_total, totalPago, troco, descontoVal]
     );
     const vendaId = vendaResult.rows[0].id;
 
-    // ── Itens + estoque ───────────────────────────────────────────────────────
     for (const item of vendaItens) {
       await client.query(
-        `INSERT INTO venda_item (venda_id, produto_id, quantidade, valor_unitario, valor_total)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [vendaId, item.produto_id, item.quantidade, item.valor_unitario, item.valor_total]
+        `INSERT INTO venda_item (venda_id, produto_id, quantidade, valor_unitario, valor_total, custo_unitario)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [vendaId, item.produto_id, item.quantidade, item.valor_unitario, item.valor_total, item.custo_unitario]
       );
       if (item.tipo === "produto") {
         await client.query(
@@ -173,7 +173,6 @@ const criarVenda = async (req, res) => {
       }
     }
 
-    // ── Pagamentos ─────────────────────────────────────────────────────────────
     if (tabelaPgtoExiste) {
       for (const p of pgtos) {
         await client.query(
@@ -184,10 +183,9 @@ const criarVenda = async (req, res) => {
     }
 
     await client.query("COMMIT");
-
     return res.json({
-      venda:      vendaResult.rows[0],
-      itens:      vendaItens,
+      venda: vendaResult.rows[0],
+      itens: vendaItens,
       pagamentos: pgtos,
       troco,
     });
@@ -201,6 +199,9 @@ const criarVenda = async (req, res) => {
 };
 
 const fmtBRL = (v) =>
-  Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  Number(v || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 
 module.exports = { criarVenda };
